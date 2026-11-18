@@ -184,10 +184,10 @@ workflow_write_hosts() {
         block+="$harbor $HARBOR_DOMAIN"$'\n'
     fi
     [ -n "$block" ] || die '集群 hosts 内容为空'
-    while IFS= read -r row; do
-        parse_node "$row"
-        node_run "$ROOT/node_scripts/hosts.sh" "$block" || die "$NODE_NAME /etc/hosts 写入失败；请核对已有冲突映射"
-    done < <(node_lines)
+    _write_host_worker() {
+        node_run "$ROOT/node_scripts/hosts.sh" "$block" || { printf '[ERROR] %s /etc/hosts 写入失败；请核对已有冲突映射\n' "$NODE_NAME" >&2; return 1; }
+    }
+    node_run_parallel _write_host_worker "$(node_lines)" || die '节点 /etc/hosts 并发写入失败；请核对已有冲突映射'
 }
 workflow_run_step() {
     local step="$1" scope="$COMPONENTS" import="$IMPORT_IMAGES" prep_scope

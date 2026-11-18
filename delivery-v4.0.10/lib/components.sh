@@ -127,16 +127,16 @@ component_compare_prepared_identity() {
 component_sync_registry_ca() {
     [ "${REGISTRY_MODE:-harbor}" != external-harbor ] || return 0
     [ "${HARBOR_HTTP:-false}" != true ] || return 0
-    local ca="${HARBOR_CA:-$WORK_DIR/pki/root.crt}" row
+    local ca="${HARBOR_CA:-$WORK_DIR/pki/root.crt}"
     [ -s "$ca" ] || die '受管 Harbor CA 不存在，无法同步到节点 containerd'
-    while IFS= read -r row; do
-        parse_node "$row"
-        { [ "$NODE_CONNECTION" = local ] || [ "$NODE_CONNECTION" = ssh ]; } || continue
+    _sync_ca_worker() {
+        { [ "$NODE_CONNECTION" = local ] || [ "$NODE_CONNECTION" = ssh ]; } || return 0
         if has_role control_plane || has_role worker || has_role registry; then
-            node_upload "$ca" /etc/kubekey/rise/harbor-ca.pem
-            node_run "$ROOT/node_scripts/registry-ca.sh" "$HARBOR_DOMAIN" || die "$NODE_NAME Harbor CA 同步失败"
+            node_upload "$ca" /etc/kubekey/rise/harbor-ca.pem || return 1
+            node_run "$ROOT/node_scripts/registry-ca.sh" "$HARBOR_DOMAIN" || { printf '[ERROR] %s Harbor CA 同步失败\n' "$NODE_NAME" >&2; return 1; }
         fi
-    done < <(node_lines)
+    }
+    node_run_parallel _sync_ca_worker "$(node_lines)" || die 'Harbor CA 并发同步失败'
 }
 component_update_controller_hosts() {
     local address

@@ -253,5 +253,62 @@ class ReceiptAndMaintenanceConvergenceTests(unittest.TestCase):
         self.assertIn('workflow_sync_and_post_verify', scale_sh)
 
 
+class NodeRunParallelTests(unittest.TestCase):
+    def test_node_run_parallel_respects_concurrency_and_propagates_failure(self):
+        common_sh = (ROOT / 'lib' / 'common.sh').read_text(encoding='utf-8')
+        self.assertIn('node_run_parallel()', common_sh)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            # Extract parse_node and node_run_parallel from common.sh and run under /bin/bash
+            harness = f'''
+set -euo pipefail
+RUN_DIR="{tmp}"
+SSH_PARALLEL=3
+parse_node() {{
+    IFS='|' read -r NODE_NAME NODE_ADDRESS NODE_INTERNAL NODE_USER NODE_PORT NODE_ARCH NODE_OS NODE_ROLES NODE_CONNECTION NODE_DATA NODE_DATA_MODE NODE_DEVICE NODE_PASS_ENV <<< "$1"
+}}
+'''
+            start = common_sh.index('node_run_parallel()')
+            # Extract function body
+            brace_depth = 0
+            end = start
+            for idx in range(start, len(common_sh)):
+                if common_sh[idx] == '{{'[0]:
+                    brace_depth += 1
+                elif common_sh[idx] == '}}'[0]:
+                    brace_depth -= 1
+                    if brace_depth == 0:
+                        end = idx + 1
+                        break
+            fn_code = common_sh[start:end]
+            rows = '\n'.join(
+                f'node{i}|192.0.2.{i}|192.0.2.{i}|root|22|amd64|ubuntu-24.04-debs|worker|ssh|/data|native||'
+                for i in range(1, 7)
+            )
+            ok_script = harness + fn_code + f'''
+worker_ok() {{
+    printf 'done:%s\\n' "$NODE_NAME"
+}}
+node_run_parallel worker_ok "{rows}"
+'''
+            res_ok = subprocess.run(['/bin/bash', '-c', ok_script], capture_output=True, text=True)
+            self.assertEqual(res_ok.returncode, 0, res_ok.stderr)
+            self.assertEqual(res_ok.stdout.splitlines(), [f'done:node{i}' for i in range(1, 7)])
+
+            fail_script = harness + fn_code + f'''
+worker_fail() {{
+    if [ "$NODE_NAME" = node4 ]; then
+        echo "boom:$NODE_NAME" >&2
+        return 7
+    fi
+    echo "ok:$NODE_NAME"
+}}
+node_run_parallel worker_fail "{rows}"
+'''
+            res_fail = subprocess.run(['/bin/bash', '-c', fail_script], capture_output=True, text=True)
+            self.assertNotEqual(res_fail.returncode, 0)
+            self.assertIn('boom:node4', res_fail.stdout + res_fail.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -139,7 +139,11 @@ if [ "$stage" = storage ] || [ "$stage" = all ]; then
 fi
 if [ "$stage" = kernel ] || [ "$stage" = all ]; then
     ERROR_PHASE="初始化内核参数"
-    while IFS= read -r line; do parse_node "$line"; node_run "$ROOT/node_scripts/kernel.sh" | tee "$RUN_DIR/$NODE_NAME.kernel.log"; done < <(active_node_lines)
+    _init_kernel_worker() {
+        node_run "$ROOT/node_scripts/kernel.sh" | tee "$RUN_DIR/$NODE_NAME.kernel.log"
+        return "${PIPESTATUS[0]}"
+    }
+    node_run_parallel _init_kernel_worker "$(active_node_lines)" || die '节点内核参数初始化失败'
     ERROR_PHASE="预装 K8s 节点 nerdctl 及配置"
     install_k8s_nodes_nerdctl
 fi

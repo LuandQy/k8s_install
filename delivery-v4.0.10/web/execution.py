@@ -5,6 +5,7 @@ broker is not a multi-tenant sandbox: trusted installation media and protected
 administrator-installed code are prerequisites. Tests inject a fake runner.
 """
 import base64
+from collections import deque
 import copy
 import datetime
 import fcntl
@@ -29,6 +30,8 @@ from config_model import ModelError, default_config, export_env, normalize_confi
 MAX_REQUEST = 256 * 1024
 MAX_RESPONSE = 1024 * 1024
 MAX_LOG = 4 * 1024 * 1024
+HEAD_LOG = 1 * 1024 * 1024
+TAIL_LOG = MAX_LOG - HEAD_LOG - 256
 MAX_LOG_READ = 64 * 1024
 LOG_LIMIT_MARKER = '[日志保留上限已达到；后续输出不再保存]\n'.encode('utf-8')
 ACTIVE = frozenset(('queued', 'running', 'stop_requested'))
@@ -192,21 +195,20 @@ def project_digest(project, trusted_uid=0):
 
 
 class JobLog:
-    """Line-oriented bytes decoder. Logs are stored verbatim, without redaction.
+    """Line-oriented bytes decoder with optional exact credential masking.
 
-    The operator explicitly asked for complete logs, so no credential or
-    private-key masking is applied. Only terminal escapes and control bytes
-    are removed so the browser receives plain text, and over-long lines are
-    dropped to bound memory. Job directories stay 0700: the log itself must be
-    handled as credential material and never attached to public reports.
+    Arbitrary log text is not heuristically redacted, preserving diagnostic
+    clarity; when submitted secret values are supplied, their exact literal
+    occurrences are masked with [REDACTED] before persistence.
     """
-    def __init__(self):
+    def __init__(self, secrets=None):
         self.pending = bytearray()
         self.discarding = False
         self.max_line = 32 * 1024
+        self.secrets = sorted({s for s in (secrets or ()) if isinstance(s, str) and s},
+                              key=len, reverse=True)
 
-    @staticmethod
-    def _plain(data):
+    def _plain(self, data):
         line = data.decode('utf-8', errors='replace')
         line = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', line)
         line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
@@ -214,7 +216,10 @@ class JobLog:
         line = re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', line)
         # C1 controls and Unicode format characters (bidi overrides and similar)
         # must not reach the rendered log; they can visually spoof output.
-        return ''.join(ch for ch in line if ch == '\t' or unicodedata.category(ch) not in ('Cc', 'Cf'))
+        cleaned = ''.join(ch for ch in line if ch == '\t' or unicodedata.category(ch) not in ('Cc', 'Cf'))
+        for secret in self.secrets:
+            cleaned = cleaned.replace(secret, '[REDACTED]')
+        return cleaned
 
     def feed(self, block, final=False):
         out = []
@@ -653,29 +658,76 @@ class ExecutionService:
             return self._snapshot(job)
 
     def _run(self, identifier, env):
-        # Logs are kept verbatim (no redaction) as requested; the job directory is
-        # private and the log must be treated as credential material.
-        decoder = JobLog()
+        # Mask submitted memory credentials while retaining 1 MiB head + 3 MiB tail.
+        secret_values = [
+            val for key, val in env.items()
+            if key == 'HARBOR_PASSWORD' or (key.startswith('RISE_WEB_NODE_') and key.endswith('_PASSWORD'))
+        ]
+        decoder = JobLog(secrets=secret_values)
         path = self.jobs_dir / identifier / 'output.log'
         retained = 0
-        capped = False
+        compacted = False
+        head_buf = bytearray()
+        tail_chunks = deque()
+        tail_size = 0
+        omitted_bytes = 0
+        unflushed_overflow = 0
         stream_failed = False
+
+        def flush_compacted():
+            marker = ('[日志已超过 4 MiB 上限；中间已省略 %d 字节，以下保留最新尾部输出]\n' % omitted_bytes).encode('utf-8')
+            payload = bytes(head_buf) + marker + b''.join(tail_chunks)
+            private_write(path, payload)
+
         def emit(block, final=False):
-            nonlocal retained, capped, stream_failed
+            nonlocal retained, compacted, tail_size, omitted_bytes, unflushed_overflow, stream_failed
             if stream_failed:
                 return  # Keep draining the child pipe without retaining output.
             safe = decoder.feed(block, final=final)
-            if not safe or capped:
+            if not safe:
+                if final and compacted and unflushed_overflow > 0:
+                    try:
+                        with self.lock:
+                            flush_compacted()
+                            unflushed_overflow = 0
+                    except OSError:
+                        pass
                 return
-            if retained + len(safe) > MAX_LOG - len(LOG_LIMIT_MARKER):
-                safe = LOG_LIMIT_MARKER
-                capped = True
             try:
                 with self.lock:
-                    fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
-                    with os.fdopen(fd, 'ab') as stream:
-                        stream.write(safe)
-                    retained += len(safe)
+                    if not compacted and retained + len(safe) <= MAX_LOG:
+                        fd = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW)
+                        with os.fdopen(fd, 'ab') as stream:
+                            stream.write(safe)
+                        retained += len(safe)
+                        return
+                    if not compacted:
+                        existing = path.read_bytes() if path.exists() else b''
+                        combined = existing + safe
+                        split_at = min(HEAD_LOG, len(combined))
+                        nl = combined.rfind(b'\n', max(0, split_at - 1024), split_at)
+                        if nl > 0:
+                            split_at = nl + 1
+                        head_buf.extend(combined[:split_at])
+                        remainder = combined[split_at:]
+                        compacted = True
+                        self.jobs[identifier]['log_compacted'] = True
+                    else:
+                        remainder = safe
+                    for line in remainder.splitlines(keepends=True):
+                        if len(line) > TAIL_LOG:
+                            omitted_bytes += len(line) - TAIL_LOG
+                            line = line[-TAIL_LOG:]
+                        tail_chunks.append(line)
+                        tail_size += len(line)
+                        while tail_size > TAIL_LOG and tail_chunks:
+                            dropped = tail_chunks.popleft()
+                            tail_size -= len(dropped)
+                            omitted_bytes += len(dropped)
+                    unflushed_overflow += len(remainder)
+                    if final or unflushed_overflow >= 65536:
+                        flush_compacted()
+                        unflushed_overflow = 0
             except OSError:
                 stream_failed = True
                 # A full disk may also prevent this marker, but never abandon
@@ -771,17 +823,20 @@ class ExecutionService:
         if type(offset) is not int or offset < 0 or offset > MAX_LOG + 4096:
             fail(400, 'invalid_offset', '日志 offset 必须为范围内的非负整数。')
         with self.lock:
-            self._job(identifier)
+            job = self._job(identifier)
             path = self.jobs_dir / identifier / 'output.log'
             protected_path(path, self.trusted_uid)
             with path.open('rb') as stream:
                 size = os.fstat(stream.fileno()).st_size
+                compacted = bool(job.get('log_compacted'))
                 if offset > size:
+                    if compacted:
+                        return {'text': '', 'next_offset': size, 'truncated': True}
                     fail(400, 'invalid_offset', '日志 offset 超出已保存内容。')
                 stream.seek(offset)
                 data = stream.read(MAX_LOG_READ)
                 stream.seek(max(0, size - len(LOG_LIMIT_MARKER)))
-                capped = stream.read() == LOG_LIMIT_MARKER
+                capped = compacted or (stream.read() == LOG_LIMIT_MARKER)
             # Byte offsets are stable. Decode replacement is safe for an offset
             # inside UTF-8, and callers normally use the returned next_offset.
             return {'text': data.decode('utf-8', errors='replace'), 'next_offset': offset + len(data),

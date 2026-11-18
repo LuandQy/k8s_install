@@ -85,6 +85,14 @@ class JobLogTests(unittest.TestCase):
         output = log.feed(b'x' * 40 + b'\n')
         self.assertEqual(output.decode('utf-8'), '[超长日志行已丢弃]\n')
 
+    def test_submitted_secrets_are_exact_masked_in_job_log(self):
+        log = execution.JobLog(secrets=['Harbor@Secret123', 'NodePass#99'])
+        output = log.feed(b'login -p Harbor@Secret123 sshpass NodePass#99 keep=plain\n')
+        text = output.decode('utf-8')
+        self.assertNotIn('Harbor@Secret123', text)
+        self.assertNotIn('NodePass#99', text)
+        self.assertIn('login -p [REDACTED] sshpass [REDACTED] keep=plain', text)
+
 
 def plan_result():
     return {'valid': True, 'schema_version': 1, 'kind': 'plan',
@@ -383,6 +391,50 @@ class ExecutionPreviewTests(unittest.TestCase):
                     'credentials': {}, 'debug': False, 'stage': 'prepare',
                 })
             self.assertEqual(replay_err.exception.code, 'cluster_claimed')
+        finally:
+            service.close()
+
+    def test_execution_masks_submitted_credentials_and_retains_head_and_tail_over_max_log(self):
+        def noisy_runner(job, env, emit):
+            emit(('HEAD-START secret=%s\n' % env.get('HARBOR_PASSWORD', '')).encode('utf-8'))
+            chunk = ('middle-padding-' + ('m' * 1000) + '\n').encode('utf-8')
+            for _ in range(5200):
+                emit(chunk)
+            emit(b'TAIL-FINAL-ERROR: kubeadm join timeout\n')
+            return 1
+
+        project = Path(self.tmp) / 'project'
+        (project / 'artifact').mkdir(parents=True)
+        (project / 'deploy.sh').write_text('#!/usr/bin/env bash\n', encoding='utf-8')
+        (project / 'artifact' / 'kubekey-artifact.tgz').write_bytes(b'archive')
+        service = execution.ExecutionService(
+            project_root=str(project), data_dir=str(Path(self.tmp) / 'executor-data'),
+            work_root=str(Path(self.tmp) / 'executor-work'), allowed_uid=os.getuid(),
+            preview_cli=FakeCLI(), runner=noisy_runner, trusted_uid=os.getuid())
+        try:
+            config = self.config(project)
+            preview = service.preview(config)
+            job = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': preview['plan_id'],
+                'config_sha256': preview['config_sha256'], 'acknowledged': True,
+                'credentials': {'harbor': 'SuperSecretHarbor123'}, 'debug': True,
+            })
+            service.threads[job['id']].join(timeout=15)
+            log_file = service.jobs_dir / job['id'] / 'output.log'
+            self.assertLessEqual(log_file.stat().st_size, execution.MAX_LOG)
+            full_text = []
+            offset = 0
+            while True:
+                page = service.logs(job['id'], offset)
+                full_text.append(page['text'])
+                if page['next_offset'] == offset:
+                    break
+                offset = page['next_offset']
+            joined = ''.join(full_text)
+            self.assertIn('HEAD-START secret=[REDACTED]', joined)
+            self.assertNotIn('SuperSecretHarbor123', joined)
+            self.assertIn('TAIL-FINAL-ERROR: kubeadm join timeout', joined)
+            self.assertIn('省略', joined)
         finally:
             service.close()
 

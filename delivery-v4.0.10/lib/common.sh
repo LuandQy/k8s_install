@@ -212,6 +212,44 @@ node_run() {
     rm -f "$input"
     return "$rc"
 }
+node_run_parallel() {
+    local worker_fn="$1" lines_data="$2" max_jobs="${SSH_PARALLEL:-5}"
+    [[ "$max_jobs" =~ ^[1-9][0-9]*$ ]] || max_jobs=5
+    local pdir idx=0 total=0 rc=0 row pid
+    local -a pids=()
+    pdir="$(mktemp -d "${RUN_DIR:-/tmp}/.parallel.XXXXXX")"
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        idx=$((idx + 1))
+        total="$idx"
+        (
+            set +e
+            parse_node "$row"
+            "$worker_fn" > "$pdir/$idx.out" 2>&1
+            printf '%s\n' "$?" > "$pdir/$idx.rc"
+        ) &
+        pids+=("$!")
+        if [ "${#pids[@]}" -ge "$max_jobs" ]; then
+            wait "${pids[0]}" 2>/dev/null || true
+            pids=("${pids[@]:1}")
+        fi
+    done <<< "$lines_data"
+    if [ "${#pids[@]}" -gt 0 ]; then
+        for pid in "${pids[@]}"; do
+            wait "$pid" 2>/dev/null || true
+        done
+    fi
+    idx=1
+    while [ "$idx" -le "$total" ]; do
+        [ ! -f "$pdir/$idx.out" ] || cat "$pdir/$idx.out"
+        if [ ! -f "$pdir/$idx.rc" ] || [ "$(cat "$pdir/$idx.rc")" -ne 0 ]; then
+            rc=1
+        fi
+        idx=$((idx + 1))
+    done
+    rm -rf "$pdir"
+    return "$rc"
+}
 node_upload() {
     local src="$1" dst="$2" quoted remote
     printf -v quoted '%q' "$dst"

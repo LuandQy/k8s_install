@@ -95,17 +95,17 @@ stage_tools() {
 }
 install_k8s_nodes_nerdctl() {
     [ "${INSTALL_NERDCTL:-true}" = true ] && [ "${COMPONENTS:-all}" != harbor ] || return 0
-    local line archive
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        parse_node "$line"
+    _install_nerdctl_worker() {
         if has_role control_plane || has_role worker; then
-            archive="$(resolve_nerdctl_archive "$NODE_ARCH")"
-            node_run "$ROOT/node_scripts/mkdir-state.sh"
-            node_upload "$archive" /etc/kubekey/rise/nerdctl.tar.gz
+            local archive
+            archive="$(resolve_nerdctl_archive "$NODE_ARCH")" || return 1
+            node_run "$ROOT/node_scripts/mkdir-state.sh" || return 1
+            node_upload "$archive" /etc/kubekey/rise/nerdctl.tar.gz || return 1
             node_run "$ROOT/node_scripts/nerdctl.sh" /etc/kubekey/rise/nerdctl.tar.gz "$NODE_ARCH" | tee "$RUN_DIR/$NODE_NAME.nerdctl.log"
+            return "${PIPESTATUS[0]}"
         fi
-    done < <(active_node_lines)
+    }
+    node_run_parallel _install_nerdctl_worker "$(active_node_lines)" || die 'K8s 节点 nerdctl 预装失败'
 }
 prepare_dependencies() {
     [ "$DEPS_MODE" != iso ] || [ -n "$ARTIFACT_FILE" ] || die 'ISO 依赖模式需要离线包'
