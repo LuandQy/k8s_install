@@ -12,10 +12,13 @@ export RECOVERY_CONTEXT
 . "$ROOT/lib/progress.sh"
 . "$ROOT/lib/resume.sh"
 . "$ROOT/lib/expansion.sh"
+. "$ROOT/lib/workflow.sh"
+. "$ROOT/lib/post-verify.sh"
 state_dir="$ROOT/state/rise"; nodes_file=''; preview=false; NONINTERACTIVE=false
 while [ "$#" -gt 0 ]; do case "$1" in
     --state-dir) state_dir="$2";shift 2;; --nodes) nodes_file="$2";shift 2;;
     --output) RUN_DIR="$2";shift 2;; --preview) preview=true;shift;;
+    --skip-post-verify) SKIP_POST_VERIFY=true; export SKIP_POST_VERIFY; shift;;
     -y|--yes) NONINTERACTIVE=true;shift;;
     --help|-h) printf '%s\n' '用法: ./scale-worker.sh --nodes workers.env [--state-dir state/rise] [--preview] [-y]' '只扩容本工具记录的集群，新增清单只允许 worker。--preview 不连接节点。';exit;;
     *) die '扩容参数无效，请使用 --help';;
@@ -135,4 +138,5 @@ cmp <(resume_identity "$RUN_DIR/check/summary.json") <(resume_identity "$RUN_DIR
 expansion_save_receipt "$RUN_DIR/check-after/summary.json"
 record_cluster_state
 mv "${STATE_DIR}.expansion" "$RUN_DIR/expansion-complete"
+workflow_sync_and_post_verify "$RUN_DIR/check-after/summary.json"
 log "worker 扩容完成: $RUN_DIR"

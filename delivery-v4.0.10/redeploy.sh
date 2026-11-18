@@ -18,6 +18,7 @@ while [ "$#" -gt 0 ]; do
  --sha256) requested_sha="$2"; shift 2;;
  --output) RUN_DIR="$2"; shift 2;;
  --preview) preview=true; shift;;
+ --skip-post-verify) SKIP_POST_VERIFY=true; export SKIP_POST_VERIFY; shift;;
  -y|--yes) silent=true; shift;;
  -h|--help) printf '%s\n' '用法: ./deploy.sh redeploy [--kubernetes v1.xx.x] [--artifact 归档] [--sha256 摘要] [--preview] [-y]' '要求先完成 reset --purge-etcd；仅允许改变 K8s 版本和离线包，其余基础参数复用原记录。' '--preview 只生成配置，不连接节点、不核验离线归档内容、不安装。'; exit;;
  *) die '未知 redeploy 参数，请使用 --help';;
@@ -53,8 +54,11 @@ write_cluster_env "$RUN_DIR/redeploy.env"
 # 公共回执为兼容历史逐字比较而不保存 STATE_DIR；传给新进程的运行配置必须保存。
 # 否则 exec deploy.sh 后会回到默认 state/<集群名>，找不到本次重建的原回执。
 printf 'STATE_DIR=%q\n' "$STATE_DIR" >> "$RUN_DIR/redeploy.env"
-# Preserve optional external-certificate paths; public state intentionally has no keys/passwords.
-for key in HARBOR_CA HARBOR_CERT HARBOR_KEY; do printf '%s=%q\n' "$key" "${!key}" >> "$RUN_DIR/redeploy.env"; done
+# Preserve optional external-certificate and BYO root CA paths; public state intentionally has no keys/passwords.
+for key in HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY; do
+ [ -n "${!key:-}" ] || [ ! -f "$RECEIPT/$key.path" ] || printf -v "$key" '%s' "$(cat "$RECEIPT/$key.path")"
+ printf '%s=%q\n' "$key" "${!key:-}" >> "$RUN_DIR/redeploy.env"
+done
 if [ "$preview" = true ]; then render_configs; log "重新部署预览: ${RUN_DIR}；基础配置保留，未连接节点或安装"; exit; fi
 next_env="$RUN_DIR/redeploy.env"
 # A password read from the trusted env file is not exported; the child

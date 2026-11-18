@@ -608,8 +608,14 @@ class ExecutionService:
                         claim_data = strict_json(claim.read_text(encoding='utf-8'))
                         prev_id = claim_data.get('id')
                         prev_job = self.jobs.get(prev_id)
-                        if prev_job and prev_job.get('state') not in ACTIVE:
+                        if (prev_job and prev_job.get('state') not in ACTIVE
+                                and prev_job.get('state') != 'interrupted'
+                                and not (prev_job.get('stage') in ('all', 'k8s') and prev_job.get('state') == 'succeeded')):
+                            if prev_job.get('config_sha256') != plan['config_sha256']:
+                                fail(409, 'config_changed_between_stages', '分阶段提交期间集群配置已变化；请恢复原配置或由管理员通过 CLI 核查。')
                             is_continuation = True
+                    except ExecutionError:
+                        raise
                     except Exception:
                         pass
                 if not is_continuation:

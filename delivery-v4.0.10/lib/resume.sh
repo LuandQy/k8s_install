@@ -25,7 +25,7 @@ resume_pki() {
     [ -d "$WORK_DIR/pki" ] || die '续跑需要保留原 PKI，禁止自动生成替代 CA'
     (cd "$WORK_DIR/pki"; find . -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(sha256_file "$f")" "$f"; done)
     local key path
-    for key in HARBOR_CA HARBOR_CERT HARBOR_KEY; do
+    for key in HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY; do
         path="${!key:-}"
         [ -z "$path" ] || printf '%s  %s\n' "$(sha256_file "$path")" "$key"
     done
@@ -43,7 +43,7 @@ resume_save_receipt() {
     resume_normalize "$RUN_DIR/config.yaml" "$RUN_DIR" > "$RECEIPT/config.json"
     cp "$RUN_DIR/inventory.yaml" "$RECEIPT/inventory.yaml"
     resume_identity "$baseline" > "$RECEIPT/identity.json"
-    for cert_variable in HARBOR_CA HARBOR_CERT HARBOR_KEY; do printf '%s\n' "${!cert_variable:-}" > "$RECEIPT/$cert_variable.path"; done
+    for cert_variable in HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY; do printf '%s\n' "${!cert_variable:-}" > "$RECEIPT/$cert_variable.path"; done
     printf '%s\n' "${COMPONENTS:-all}" > "$RECEIPT/components"
     printf '%s\n' "${IMPORT_IMAGES:-true}" > "$RECEIPT/import-images"
     printf '%s\n' "${REUSE_HARBOR:-false}" > "$RECEIPT/reuse-harbor"

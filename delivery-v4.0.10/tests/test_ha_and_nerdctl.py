@@ -228,5 +228,30 @@ class NerdctlPreinstallTests(unittest.TestCase):
         self.assertIn('.rise.install_nerdctl', kk_verify)
 
 
+class ReceiptAndMaintenanceConvergenceTests(unittest.TestCase):
+    def test_byo_ca_paths_persisted_and_restored_across_receipts(self):
+        resume_sh = (ROOT / 'lib' / 'resume.sh').read_text(encoding='utf-8')
+        prepared_sh = (ROOT / 'lib' / 'prepared-config.sh').read_text(encoding='utf-8')
+        redeploy_sh = (ROOT / 'redeploy.sh').read_text(encoding='utf-8')
+        for text, name in ((resume_sh, 'lib/resume.sh'),
+                           (prepared_sh, 'lib/prepared-config.sh'),
+                           (redeploy_sh, 'redeploy.sh')):
+            self.assertIn('PKI_ROOT_CERT', text, f'{name} missing PKI_ROOT_CERT persistence')
+            self.assertIn('PKI_ROOT_KEY', text, f'{name} missing PKI_ROOT_KEY persistence')
+
+    def test_workflow_status_fix_and_post_maintenance_verify_convergence(self):
+        workflow_sh = (ROOT / 'lib' / 'workflow.sh').read_text(encoding='utf-8')
+        self.assertNotIn('access.status', workflow_sh)
+        self.assertIn('workflow_status access', workflow_sh)
+        post_verify = ROOT / 'lib' / 'post-verify.sh'
+        self.assertTrue(post_verify.is_file(), 'missing lib/post-verify.sh')
+        pv_text = post_verify.read_text(encoding='utf-8')
+        self.assertIn('workflow_sync_and_post_verify', pv_text)
+        deploy_sh = (ROOT / 'deploy.sh').read_text(encoding='utf-8')
+        scale_sh = (ROOT / 'scale-worker.sh').read_text(encoding='utf-8')
+        self.assertIn('workflow_sync_and_post_verify', deploy_sh)
+        self.assertIn('workflow_sync_and_post_verify', scale_sh)
+
+
 if __name__ == '__main__':
     unittest.main()

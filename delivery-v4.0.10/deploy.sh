@@ -40,6 +40,7 @@ if [ "${1:-}" = add-workers ]; then shift; exec bash "$(cd "$(dirname "$0")" && 
 . "$ROOT/lib/prepared-config.sh"
 . "$ROOT/lib/plan.sh"
 . "$ROOT/lib/workflow.sh"
+. "$ROOT/lib/post-verify.sh"
 . "$ROOT/lib/config-output.sh"
 # 帮助文本集中在此，避免把整页说明塞进单行 case 分支。
 usage() {
@@ -96,6 +97,7 @@ while [ "$#" -gt 0 ]; do
     --state-dir) STATUS_STATE_DIR="$2"; shift 2;;
     --components) CLI_COMPONENTS="$2"; export CLI_COMPONENTS; shift 2;;
     --skip-image-import) CLI_IMPORT_IMAGES=false; export CLI_IMPORT_IMAGES; shift;;
+    --skip-post-verify) SKIP_POST_VERIFY=true; export SKIP_POST_VERIFY; shift;;
     --from-run) legacy_run="$2"; shift 2;;
     --step) step_option="$2"; shift 2;;
     --auto-default) auto_default=true; cli_noninteractive=true; shift;;
@@ -421,6 +423,7 @@ else
     verify_cluster
     record_cluster_state
     if [ "$COMPONENTS" = all ]; then HARBOR_IMAGES_VERIFIED=true component_record_harbor; fi
+    if [ "$stage" = redeploy-run ]; then workflow_sync_and_post_verify "$RUN_DIR/check/summary.json"; fi
 fi
 printf 'complete\n' > "$RECEIPT/status"
 log "部署流程完成: $RUN_DIR"

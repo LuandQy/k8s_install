@@ -82,7 +82,7 @@ load_maintenance_env() {
     [ -f "$receipt/cluster.env" ] || return 0
     load_env "$receipt/cluster.env"
     # 公开参数不保存证书私钥；回执仅记录文件路径，校验仍由原 PKI 检查执行。
-    for cert_variable in HARBOR_CA HARBOR_CERT HARBOR_KEY; do
+    for cert_variable in HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY; do
         [ ! -f "$receipt/$cert_variable.path" ] || printf -v "$cert_variable" '%s' "$(cat "$receipt/$cert_variable.path")"
     done
     log "维护操作使用最新部署记录：$receipt"

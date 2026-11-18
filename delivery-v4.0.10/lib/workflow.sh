@@ -29,7 +29,7 @@ workflow_steps() {
         prepare)
             if [ "${DELIVERY_GRANULAR_STEP:-false}" = true ]; then
                 printf 'prepare\n'
-            elif [ ! -f "$WF_DIR/access.status" ] || [ "$(cat "$WF_DIR/access.status" 2>/dev/null)" != succeeded ]; then
+            elif [ ! -f "$WF_DIR/access.json" ] || [ "$(workflow_status access)" != succeeded ]; then
                 printf '%s\n' access prepare deps services-init services-verify
             else
                 printf '%s\n' prepare deps services-init services-verify

@@ -330,6 +330,62 @@ class ExecutionPreviewTests(unittest.TestCase):
         self.assertEqual(capabilities['confirmation'], 'acknowledgement')
         self.assertEqual(capabilities['log_levels'], ['info', 'debug'])
 
+    def test_staged_continuation_guards_config_drift_and_completed_cluster(self):
+        service, project = make_service(self.tmp)
+        try:
+            config = self.config(project)
+            prep = service.preview(config, 'prepare')
+            j1 = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': prep['plan_id'],
+                'config_sha256': prep['config_sha256'], 'acknowledged': True,
+                'credentials': {}, 'debug': False, 'stage': 'prepare',
+            })
+            service.threads[j1['id']].join(timeout=10)
+            self.assertEqual(service.jobs[j1['id']]['state'], 'succeeded')
+
+            # Mutated config for the same cluster_name must be rejected
+            mutated = self.config(project)
+            mutated['settings']['K8S_DOMAIN'] = 'drifted.rise.io'
+            harbor_drifted = service.preview(mutated, 'harbor')
+            with self.assertRaises(execution.ExecutionError) as drift_err:
+                service.submit({
+                    'request_id': str(uuid.uuid4()), 'plan_id': harbor_drifted['plan_id'],
+                    'config_sha256': harbor_drifted['config_sha256'], 'acknowledged': True,
+                    'credentials': {'harbor': 'Abcdef123456'}, 'debug': False, 'stage': 'harbor',
+                })
+            self.assertIn(drift_err.exception.code, ('config_changed_between_stages', 'cluster_claimed'))
+
+            # Unchanged config progresses cleanly through harbor -> k8s
+            harbor_ok = service.preview(config, 'harbor')
+            j2 = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': harbor_ok['plan_id'],
+                'config_sha256': harbor_ok['config_sha256'], 'acknowledged': True,
+                'credentials': {'harbor': 'Abcdef123456'}, 'debug': False, 'stage': 'harbor',
+            })
+            service.threads[j2['id']].join(timeout=10)
+            self.assertEqual(service.jobs[j2['id']]['state'], 'succeeded')
+
+            k8s_ok = service.preview(config, 'k8s')
+            j3 = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': k8s_ok['plan_id'],
+                'config_sha256': k8s_ok['config_sha256'], 'acknowledged': True,
+                'credentials': {'harbor': 'Abcdef123456'}, 'debug': False, 'stage': 'k8s',
+            })
+            service.threads[j3['id']].join(timeout=10)
+            self.assertEqual(service.jobs[j3['id']]['state'], 'succeeded')
+
+            # Once k8s stage succeeded, re-running fresh-install stages on the same cluster is rejected
+            replay = service.preview(config, 'prepare')
+            with self.assertRaises(execution.ExecutionError) as replay_err:
+                service.submit({
+                    'request_id': str(uuid.uuid4()), 'plan_id': replay['plan_id'],
+                    'config_sha256': replay['config_sha256'], 'acknowledged': True,
+                    'credentials': {}, 'debug': False, 'stage': 'prepare',
+                })
+            self.assertEqual(replay_err.exception.code, 'cluster_claimed')
+        finally:
+            service.close()
+
 
 if __name__ == '__main__':
     unittest.main()
