@@ -140,12 +140,14 @@ fi
 if [ "$stage" = kernel ] || [ "$stage" = all ]; then
     ERROR_PHASE="初始化内核参数"
     while IFS= read -r line; do parse_node "$line"; node_run "$ROOT/node_scripts/kernel.sh" | tee "$RUN_DIR/$NODE_NAME.kernel.log"; done < <(active_node_lines)
+    ERROR_PHASE="预装 K8s 节点 nerdctl 及配置"
+    install_k8s_nodes_nerdctl
 fi
 cp "$ENV_FILE" "$RUN_DIR/effective.env"
 printf '\nNODES=%q\n' "$NODES" >> "$RUN_DIR/effective.env"
 printf 'WORK_DIR=%q\nLOCAL_PATH=%q\nNFS_PATH=%q\n' "$WORK_DIR" "$LOCAL_PATH" "$NFS_PATH" >> "$RUN_DIR/effective.env"
 printf 'PKI_ROOT_CERT=%q\nPKI_ROOT_KEY=%q\n' "$PKI_ROOT_CERT" "$PKI_ROOT_KEY" >> "$RUN_DIR/effective.env"
-printf 'COMPONENTS=%q\nIMPORT_IMAGES=%q\n' "$COMPONENTS" "$IMPORT_IMAGES" >> "$RUN_DIR/effective.env"
+printf 'COMPONENTS=%q\nIMPORT_IMAGES=%q\nINSTALL_NERDCTL=%q\n' "$COMPONENTS" "$IMPORT_IMAGES" "${INSTALL_NERDCTL:-true}" >> "$RUN_DIR/effective.env"
 # 发布前再次完整校验快照；无效快照保留用于诊断，但不能成为可复用索引。
 (load_env "$RUN_DIR/effective.env")
 log "初始化完成，有效参数: $RUN_DIR/effective.env"

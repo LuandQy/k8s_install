@@ -87,6 +87,7 @@ ${WORKER_AUTH_YAML}
       projectcalico/tigera-operator: ${CALICO_IMAGES_YAML}
   rise:
     os_prepared: ${OS_PREPARED}
+    install_nerdctl: ${INSTALL_NERDCTL}
     image_manifests: ${SELECTED_MANIFESTS_YAML}
     image_arches: ${ARCHES_YAML}
 ${COMPONENT_FIELDS_YAML}${WORKER_FIELDS_YAML}

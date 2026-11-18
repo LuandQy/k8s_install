@@ -159,5 +159,74 @@ class MasterEtcdOddQuorumAndSchemaTests(unittest.TestCase):
         self.assertIn('% 2', wizard_nodes)
 
 
+class NerdctlPreinstallTests(unittest.TestCase):
+    def test_nerdctl_node_script_extracts_amd64_and_arm64_and_writes_toml(self):
+        script = ROOT / 'node_scripts' / 'nerdctl.sh'
+        self.assertTrue(script.is_file(), 'missing node_scripts/nerdctl.sh')
+        cases = [
+            ('amd64', 'x86_64', 62),
+            ('arm64', 'aarch64', 183),
+        ]
+        import struct
+        import tempfile
+        for arch, uname_m, elf_machine in cases:
+            archive = ROOT / 'artifact' / 'tools' / arch / f'nerdctl-2.2.1-linux-{arch}.tar.gz'
+            self.assertTrue(archive.is_file(), f'missing bundled archive {archive}')
+            with tempfile.TemporaryDirectory() as tmp:
+                env = dict(os.environ, NERDCTL_DEST_ROOT=tmp, NERDCTL_TEST_UNAME_M=uname_m)
+                res = subprocess.run(['/bin/sh', str(script), str(archive), arch],
+                                     env=env, capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                binary = Path(tmp) / 'usr' / 'local' / 'bin' / 'nerdctl'
+                toml = Path(tmp) / 'etc' / 'nerdctl' / 'nerdctl.toml'
+                self.assertTrue(binary.is_file())
+                self.assertTrue(os.access(binary, os.X_OK))
+                header = binary.read_bytes()[:20]
+                self.assertEqual(header[:4], b'\x7fELF')
+                machine = struct.unpack('<H', header[18:20])[0]
+                self.assertEqual(machine, elf_machine)
+                toml_text = toml.read_text(encoding='utf-8')
+                self.assertIn('namespace      = "k8s.io"', toml_text)
+                self.assertIn('cgroup_manager = "cgroupfs"', toml_text)
+                self.assertIn('/etc/containerd/certs.d', toml_text)
+
+                # Idempotency: custom marker in existing nerdctl.toml is preserved on re-run
+                toml.write_text(toml_text + '# keep-custom\n', encoding='utf-8')
+                res2 = subprocess.run(['/bin/sh', str(script), '/nonexistent/ignored-when-present.tgz', arch],
+                                      env=env, capture_output=True, text=True)
+                self.assertEqual(res2.returncode, 0, res2.stderr)
+                self.assertIn('# keep-custom', toml.read_text(encoding='utf-8'))
+
+                # Missing nerdctl.toml is backfilled even when binary already exists
+                toml.unlink()
+                res3 = subprocess.run(['/bin/sh', str(script), '/nonexistent/ignored-when-present.tgz', arch],
+                                      env=env, capture_output=True, text=True)
+                self.assertEqual(res3.returncode, 0, res3.stderr)
+                self.assertTrue(toml.is_file())
+
+    def test_nerdctl_node_script_rejects_arch_mismatch(self):
+        script = ROOT / 'node_scripts' / 'nerdctl.sh'
+        self.assertTrue(script.is_file())
+        archive = ROOT / 'artifact' / 'tools' / 'amd64' / 'nerdctl-2.2.1-linux-amd64.tar.gz'
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, NERDCTL_DEST_ROOT=tmp, NERDCTL_TEST_UNAME_M='aarch64')
+            res = subprocess.run(['/bin/sh', str(script), str(archive), 'amd64'],
+                                 env=env, capture_output=True, text=True)
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn('架构不匹配', res.stderr)
+
+    def test_nerdctl_wired_into_init_deps_render_and_kk_verify(self):
+        artifact_sh = (ROOT / 'lib' / 'artifact.sh').read_text(encoding='utf-8')
+        init_sh = (ROOT / 'init.sh').read_text(encoding='utf-8')
+        config_base = (ROOT / 'config-base.yaml').read_text(encoding='utf-8')
+        kk_verify = (ROOT / 'kk-project' / 'roles' / 'rise' / 'verify' / 'tasks' / 'main.yaml').read_text(encoding='utf-8')
+        self.assertIn('install_k8s_nodes_nerdctl', artifact_sh)
+        self.assertIn('node_scripts/nerdctl.sh', artifact_sh)
+        self.assertIn('install_k8s_nodes_nerdctl', init_sh)
+        self.assertIn('install_nerdctl:', config_base)
+        self.assertIn('.rise.install_nerdctl', kk_verify)
+
+
 if __name__ == '__main__':
     unittest.main()

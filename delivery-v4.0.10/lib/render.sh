@@ -115,6 +115,7 @@ render_configs() {
 "
     fi
     OS_PREPARED=false; [ "${DELIVERY_STEP:-false}" != true ] || OS_PREPARED=true
+    INSTALL_NERDCTL="${INSTALL_NERDCTL:-true}"
     SELECTED_MANIFESTS_YAML='[]'
     if [ "${IMAGE_IMPORT_ONLY:-false}" = true ]; then SELECTED_MANIFESTS_YAML=$(selected_target_images | jq -c .); fi
     CALICO_IMAGES_YAML="$(cat "$ROOT/lib/calico-images.json")"
