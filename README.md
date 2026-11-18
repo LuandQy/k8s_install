@@ -25,7 +25,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | [`delivery-v4.0.10/`](delivery-v4.0.10/) | 正式离线交付包主体目录（含 `deploy.sh`、`lib/`、`web/`、`node_scripts/`、`kk-project/`、`configs/`、`examples/`、`docs/`、`tests/`） |
-| [`delivery-v4.0.10/README.md`](delivery-v4.0.10/README.md) | 交付包接收校验、CLI/Web 快速启动与 14 份运维/架构手册总索引 |
+| [`delivery-v4.0.10/README.md`](delivery-v4.0.10/README.md) | 交付包接收校验、CLI/Web 快速启动与 15 份运维/架构手册总索引 |
 | [`release.sh`](release.sh) | 发布前防呆流水线：清理字节码、Shell 语法检查、运行 Node + Python 回归单测、刷新并核验 `SOURCE_SHA256SUMS` 与 `SHA256SUMS` |
 | [`manage_lima_cluster.sh`](manage_lima_cluster.sh) | macOS (Apple Silicon / Intel) 本地一键拉起/销毁 3 节点 Lima 虚拟化验证集群 |
 | [`simulate_web_deployment.py`](simulate_web_deployment.py) | Web 工作台分阶段（`prepare -> harbor -> k8s`）端到端自动化回归驱动 |
@@ -34,17 +34,42 @@
 
 ---
 
-## 大体积离线制品与二进制准备（Git 克隆后补齐）
+## 大体积离线制品与二进制制作（基于 KubeKey v4）
 
-为保持 Git 仓库轻量，`.gitignore` 已排除多 GiB 离线归档与二进制工具。克隆本仓库后，如需构建完整离线交付目录或执行实机部署，请将对应文件放入以下固定位置（摘要基准记录在包内清单中）：
+本项目基于上游 [kubesphere/kubekey](https://github.com/kubesphere/kubekey)（`v4.0.10`）构建。为保持 Git 仓库轻量，`.gitignore` 已排除多 GiB 离线归档与二进制工具。克隆本仓库后，如需构建完整离线交付目录或执行实机部署，完整分步教程（含架构/版本裁剪、国内源注意事项、使用 `hack/gen-repository-iso` 自制未托管系统 ISO、制作 Ubuntu/Kylin `bootstrap` 包）请查阅 **[基于 KubeKey v4 的全量离线包制作指南](delivery-v4.0.10/docs/offline-package-build.md)**。
+
+### 核心离线文件清单
 
 | 目标路径 | 用途 | 获取或生成方式 |
 | --- | --- | --- |
-| `delivery-v4.0.10/tools/{amd64,arm64}/kk` | KubeKey `v4.0.10` 执行引擎 | 在联网 Linux 控制端运行 `./delivery-v4.0.10/tools/kk-fetch.sh --version v4.0.10 --apply`（自动核对 `lib/kk-binaries.sha256`） |
-| `delivery-v4.0.10/tools/{amd64,arm64}/jq` | 控制端内置静态 `jq` | 放入对应架构静态 `jq` 可执行文件（或控制端系统已安装 `jq`） |
-| `delivery-v4.0.10/artifact/kubekey-artifact.tgz` | K8s / Harbor / Calico / OS ISO 内层离线制品包 | 在联网 Linux 环境运行 `bash delivery-v4.0.10/package.sh` 导出，或放入既有已验证制品包 |
-| `delivery-v4.0.10/artifact/tools/{amd64,arm64}/nerdctl-2.2.1-linux-*.tar.gz` | K8s 节点预装的 `nerdctl` 离线包 | 随离线制品目录一并放置，由 `artifact/SHA256SUMS` 校验摘要 |
-| `delivery-v4.0.10/bootstrap/bootstrap-*.tar.gz` | 可选控制端/节点离线系统包 | 按目标发行版放置于 `bootstrap/` 并保留同名 `.sha256` |
+| `delivery-v4.0.10/tools/{amd64,arm64}/kk` | KubeKey `v4.0.10` 执行与导出引擎 | 运行 `./delivery-v4.0.10/tools/kk-fetch.sh --version v4.0.10 --apply`（自动核对 `lib/kk-binaries.sha256`） |
+| `delivery-v4.0.10/tools/{amd64,arm64}/jq` | 控制端内置静态 `jq`（`1.8.1`） | 下载官方 `jq-linux-{amd64,arm64}` 静态二进制放入对应目录并赋予 `0755` 权限 |
+| `delivery-v4.0.10/artifact/kubekey-artifact.tgz` 与 `manifests.yaml` | K8s / Harbor / Calico / `kube-vip` / `haproxy` / OS ISO 内层制品包 | 在联网 Linux 制包机运行 `PACKAGE_WORK_DIR=/data/kubekey-package bash package.sh`（底层调用 `kk artifact export`） |
+| `delivery-v4.0.10/artifact/tools/{amd64,arm64}/{nerdctl,oras}*.tar.gz` | 节点预装 `nerdctl`（`v2.2.1`）与镜像推送工具 `oras`（`v1.3.0`） | `kk artifact export` 自动拉取至工作目录 `artifact/tools/`（手工更新后需运行 `./tools/artifact-refresh.sh`） |
+| `delivery-v4.0.10/bootstrap/bootstrap-*.tar.gz` | 控制端与节点离线系统引导包（含同名 `.sha256`） | 在目标发行版干净环境中通过 `apt-get download` / `dnf download` 制作本地源归档 |
+
+### 联网 Linux 制包机一键制作主流程
+
+```bash
+# 1. 拉取并校验双架构 KubeKey v4.0.10 与静态 jq
+cd delivery-v4.0.10
+./tools/kk-fetch.sh --version v4.0.10 --apply
+curl -fL -o tools/amd64/jq https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64
+curl -fL -o tools/arm64/jq https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-arm64
+chmod 0755 tools/amd64/jq tools/arm64/jq
+
+# 2. 按 package-config.yaml 导出 kubekey-artifact.tgz、manifests.yaml、nerdctl/oras 及 artifact/SHA256SUMS
+#    注意：务必使用独立 PACKAGE_WORK_DIR，避免导出过程清空原 artifact/ 或混入临时下载缓存
+PACKAGE_WORK_DIR=/data/kubekey-package bash package.sh
+rm -rf artifact && cp -a /data/kubekey-package/artifact artifact
+
+# 3. 运行只读离线依赖与 OCI 镜像闭包审计（确认退出码为 0）
+python3 lib/offline-audit.py --root . --output /tmp/offline-audit-v1.36.4 --kubernetes v1.36.4 --arch amd64
+
+# 4. 回到仓库根目录执行单测回归、刷新防篡改清单并打包最终发行归档
+cd ..
+bash release.sh --pack delivery-v4.0.10-$(date +%Y%m%d).tar.gz
+```
 
 > 仅在本地运行配置工作台预览、导入导出 `.env` 或执行单元测试时，无需下载上述多 GiB 离线制品。
 
@@ -90,6 +115,7 @@ bash release.sh --pack delivery-v4.0.10-$(date +%Y%m%d).tar.gz
 
 完整部署前置、拓扑规划、分步接管与故障恢复请查阅 [`delivery-v4.0.10/docs/`](delivery-v4.0.10/docs/) 下的专题手册：
 
+- [基于 KubeKey v4 的全量离线包制作指南](delivery-v4.0.10/docs/offline-package-build.md)
 - [架构与执行链路](delivery-v4.0.10/docs/architecture.md)
 - [部署前置条件与验收边界](delivery-v4.0.10/docs/deployment-checklist.md)
 - [默认值、连接方式与快速上手](delivery-v4.0.10/docs/quick-start.md)

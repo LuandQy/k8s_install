@@ -76,6 +76,7 @@ CLI 完整操作见 [交互式一键部署指南](docs/deploy-guide.md)。默认
 | [Web 一键部署](docs/web-deployment.md) | 管理员启用执行、任务确认、阶段日志和停止边界 |
 | [多节点部署](docs/multinode-deployment.md) | 外部 Harbor、跨节点验收、SSH 信任与恢复 |
 | [维护与故障处理](docs/operations.md) | 状态、备份、续跑、扩容、重建和清理影响 |
+| [离线包制作指南](docs/offline-package-build.md) | 基于上游 KubeKey v4 从零制作 `kk`、`kubekey-artifact.tgz`、OS ISO、`nerdctl`/`oras` 与 `bootstrap` 离线包 |
 | [高级分步参考](docs/staged-install.md) | 阶段前置、命令与诊断证据 |
 | [WSL 本地验证记录](docs/wsl-validation.md) | WSL 单节点实装结果、测试专属网络适配与未覆盖边界 |
 | [第三方组件与许可入口](docs/third-party.md) | 随包组件来源、版本目录及许可文件位置 |
