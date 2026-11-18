@@ -39,7 +39,7 @@ for checksum in bootstrap/*.sha256; do (cd bootstrap && sha256sum -c "$(basename
 bash deploy.sh web --data-dir /tmp/rise-config-drafts --port 8765
 ```
 
-在同一台电脑打开终端给出的临时链接。这条命令默认提供配置模式：三步向导支持填写/保存、只读校验与计划、执行器就绪后直接提交后台安装；第 1 步提供紧凑三列参数、节点矩阵、数据盘派生预览与 env 预览，第 3 步支持 prepare/Harbor/K8s 分阶段独立提交。Harbor 管理员密码内嵌在勾选 Harbor 角色的节点矩阵行，所有 Harbor 行共享同一个页面值；节点 SSH 密码在节点矩阵行内，并和认证方式联动。页面不保存草稿，密码只保留在当前页面内存；配置持久化使用导入/导出 .env。第 3 步“一键开始安装”会校验表单并直接提交后台任务，不再弹二次确认。日志不做脱敏。需要直接从页面部署时，由管理员启动独立执行器，并添加 `--executor-socket` 连接，见 [Web 一键部署](docs/web-deployment.md)。按 Ctrl+C 停止；`/tmp` 不是长期配置备份，请使用导出 .env。
+在同一台电脑打开终端给出的临时链接。这条命令默认提供配置模式：三步向导支持填写/保存、只读校验与计划、执行器就绪后直接提交后台安装；第 1 步提供紧凑三列参数、节点矩阵、数据盘派生预览与 env 预览（默认勾选在全部 K8s 节点预装 `nerdctl` 及 `/etc/nerdctl/nerdctl.toml` 配置；Master 与 Etcd 节点强制同机且数量须为 `1 / 3 / 5…` 正奇数），第 3 步支持 prepare/Harbor/K8s 分阶段独立提交。Harbor 管理员密码内嵌在勾选 Harbor 角色的节点矩阵行，所有 Harbor 行共享同一个页面值；节点 SSH 密码在节点矩阵行内，并和认证方式联动。页面不保存草稿，密码只保留在当前页面内存；配置持久化使用导入/导出 .env。第 3 步“一键开始安装”会校验表单并直接提交后台任务，不再弹二次确认。Web 执行器对提交的内存凭据做精确 `[REDACTED]` 掩码，并在超 `4 MiB` 时自动保留头部 `1 MiB` 与最新尾部 `3 MiB`。需要直接从页面部署时，由管理员启动独立执行器，并添加 `--executor-socket` 连接，见 [Web 一键部署](docs/web-deployment.md)。按 Ctrl+C 停止；`/tmp` 不是长期配置备份，请使用导出 .env。
 
 也可直接使用 CLI 向导；显式入口为 `sudo ./deploy.sh cli`。需要复用已审阅配置、不进入菜单时使用 `sudo ./deploy.sh cli --auto-default --env /absolute/site.env -y`；需要从阶段边界接管时使用 `sudo ./deploy.sh cli --step <stage> --env /absolute/site.env`。无论采用 Web、向导还是模板，都按 [配置到 CLI 的衔接](docs/configuration-workflow.md) 明确 **CONFIG 实际路径、配置所有者和检查身份**。归档 SHA256 不需要在 Web 表单手工填写：后端优先读取同目录 `.sha256`，否则读取 `artifact/SHA256SUMS`，部署时仍由 CLI 校验实际字节；CLI 也可执行 `./deploy.sh artifact-sha256 --file /absolute/archive.tgz`。Web 不会自动更新 `cluster-vars.env`；须导出并审阅后显式加载。sudo 向导创建的 0600 配置应由有权限的管理员检查，不放宽权限来迁就普通用户读取。
 
