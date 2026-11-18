@@ -119,6 +119,21 @@
       }
     },
     {
+      "key": "INSTALL_NERDCTL",
+      "label": "安装 nerdctl 工具及配置",
+      "group": "cluster",
+      "type": "boolean",
+      "default": true,
+      "visible_when": {
+        "field": "COMPONENTS",
+        "in": [
+          "all",
+          "k8s"
+        ]
+      },
+      "help": "默认启用：在前置准备阶段为全部 K8s 节点安装随包 nerdctl（v2.2.1）并写入 /etc/nerdctl/nerdctl.toml（namespace=k8s.io, cgroup_manager=cgroupfs）。"
+    },
+    {
       "key": "K8S_DOMAIN",
       "label": "API 域名",
       "group": "network",
@@ -210,6 +225,21 @@
       "group": "registry",
       "type": "boolean",
       "default": true,
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "notEquals": "external-harbor"
+          }
+        ]
+      },
       "help": "声明未来流程是否导入镜像；整套 all 需要导入，复用仓库 k8s 不会因此写入外部仓库。"
     },
     {
@@ -218,6 +248,10 @@
       "group": "registry",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "field": "REGISTRY_MODE",
+        "equals": "external-harbor"
+      },
       "help": "仅 external-harbor 填写仓库 IPv4；外部仓库不能同时列入受管节点清单。"
     },
     {
@@ -250,6 +284,21 @@
       "group": "registry",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "equals": "ha-harbor"
+          }
+        ]
+      },
       "help": "仅 ha-harbor 配置独立 IPv4 VIP，不能与节点或 API VIP 重复；Web 不核验现场占用。"
     },
     {
@@ -260,6 +309,21 @@
       "default": 31,
       "minimum": 1,
       "maximum": 255,
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "equals": "ha-harbor"
+          }
+        ]
+      },
       "help": "仅 ha-harbor 的 keepalived 使用；同一二层网络内的每个 keepalived 实例必须唯一，否则 VIP 会来回切换。"
     },
     {
@@ -268,6 +332,21 @@
       "group": "registry",
       "type": "string",
       "default": "/var/lib/harbor/data",
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "notEquals": "external-harbor"
+          }
+        ]
+      },
       "help": "未来执行节点上的 Harbor 数据源目录；只保存路径，不创建或迁移数据。"
     },
     {
@@ -276,6 +355,22 @@
       "group": "registry",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "any": [
+          {
+            "field": "REGISTRY_MODE",
+            "equals": "external-harbor"
+          },
+          {
+            "field": "COMPONENTS",
+            "equals": "k8s"
+          },
+          {
+            "field": "HARBOR_HTTP",
+            "equals": false
+          }
+        ]
+      },
       "help": "执行控制端上的公开 CA 文件路径；Web 不上传或读取证书正文。外部 Harbor 必填。"
     },
     {
@@ -284,6 +379,21 @@
       "group": "registry",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "notEquals": "external-harbor"
+          }
+        ]
+      },
       "help": "受管 Harbor 的证书由 KubeKey 生成（SAN 含域名与仓库节点/VIP），此字段当前不参与证书签发，仅保留兼容；不要用它期望替换 Harbor 证书。"
     },
     {
@@ -292,6 +402,21 @@
       "group": "registry",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "all": [
+          {
+            "field": "COMPONENTS",
+            "in": [
+              "all",
+              "harbor"
+            ]
+          },
+          {
+            "field": "REGISTRY_MODE",
+            "notEquals": "external-harbor"
+          }
+        ]
+      },
       "help": "仅填写路径，不粘贴私钥正文；受管 Harbor 不使用该文件签发服务证书。需要自带 CA 时预置 WORK_DIR/pki 的根证书与私钥。"
     },
     {
@@ -339,6 +464,10 @@
       "group": "storage",
       "type": "string",
       "default": "node1",
+      "visible_when": {
+        "field": "NFS_MODE",
+        "equals": "new"
+      },
       "help": "new 模式填写节点清单中的名称，不是 IP；仅声明未来服务端。"
     },
     {
@@ -347,6 +476,10 @@
       "group": "storage",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "field": "NFS_MODE",
+        "equals": "existing"
+      },
       "help": "existing 模式填写已有服务端 IP 或域名；Web 不测试挂载。"
     },
     {
@@ -355,6 +488,13 @@
       "group": "storage",
       "type": "string",
       "default": "/data/nfs",
+      "visible_when": {
+        "field": "NFS_MODE",
+        "in": [
+          "new",
+          "existing"
+        ]
+      },
       "help": "服务端导出路径；none 时此字段闲置，启用 NFS 前须重新核对。"
     },
     {
@@ -399,6 +539,12 @@
       "group": "artifact",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "field": "DEPS_MODE",
+        "notIn": [
+          "online"
+        ]
+      },
       "help": "填写执行控制端上的内层 artifact/kubekey-artifact.tgz 绝对路径，不是外层交付包。路径不可含空格、中文或 ..；不上传大归档。计划仅检查路径是否存在。"
     },
     {
@@ -415,6 +561,12 @@
       "group": "artifact",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "field": "DEPS_MODE",
+        "in": [
+          "bootstrap"
+        ]
+      },
       "help": "DEPS_MODE=bootstrap 时使用；为空则按节点 OS/arch 自动匹配 bootstrap/bootstrap-<distro>-<arch>.tar.gz。"
     },
     {
@@ -472,6 +624,10 @@
       "group": "access",
       "type": "string",
       "default": "/root/.ssh/rise_deploy",
+      "visible_when": {
+        "field": "SSH_AUTH_MODE",
+        "equals": "key"
+      },
       "help": "执行部署 CLI 的控制端上的私钥路径，不是节点路径或浏览器文件；私钥不分发。Web 不读取文件或检查私公钥匹配，管理员须提前核对，正式 CLI 接入时再验证。"
     },
     {
@@ -535,6 +691,10 @@
       "group": "time",
       "type": "string",
       "default": "node1",
+      "visible_when": {
+        "field": "NTP_MODE",
+        "equals": "node"
+      },
       "help": "node 模式填写节点清单中的名称；不会配置时间服务。"
     },
     {
@@ -543,6 +703,10 @@
       "group": "time",
       "type": "string",
       "default": "",
+      "visible_when": {
+        "field": "NTP_MODE",
+        "equals": "external"
+      },
       "help": "多个上游 IPv4/域名以英文逗号分隔；不查询或连接时间源。"
     },
     {
@@ -551,6 +715,10 @@
       "group": "time",
       "type": "boolean",
       "default": true,
+      "visible_when": {
+        "field": "NTP_MODE",
+        "equals": "node"
+      },
       "help": "仅在完全离线且明确接受本地时间基准时启用；不能证明 UTC 准确。"
     },
     {

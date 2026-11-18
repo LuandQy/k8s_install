@@ -19,6 +19,7 @@ write_cluster_env() {
     fi
     [ "${CLUSTER_VERIFY_MODE:-selected-node}" = selected-node ] || printf 'CLUSTER_VERIFY_MODE=%q\n' "$CLUSTER_VERIFY_MODE" >> "$dest"
     [ "${IMPORT_IMAGES:-true}" = true ] || printf 'IMPORT_IMAGES=%q\n' "$IMPORT_IMAGES" >> "$dest"
+    [ "${INSTALL_NERDCTL:-true}" = true ] || printf 'INSTALL_NERDCTL=%q\n' "$INSTALL_NERDCTL" >> "$dest"
     [ "${COMPONENTS:-all}" = all ] || printf 'COMPONENTS=%q\n' "$COMPONENTS" >> "$dest"
 }
 state_checksums() {

@@ -150,6 +150,6 @@ wizard_nodes_valid() {
         if [ "$NODE_CONNECTION" = local ]; then locals=$((locals+1)); fi
     done <<< "$nodes"
     if [ "$locals" -gt 1 ]; then printf '本机连接只能有一个，请将其他节点改成 SSH。\n'; return 1; fi
-    if [ "${WIZARD_SCOPE:-cluster}" != workers ] && [ "${CLI_COMPONENTS:-all}" != harbor ] && [ "$masters" -ne 1 ] && [ "$masters" -ne 3 ]; then printf '控制平面必须为 1 或 3 个，请修改节点清单。\n'; return 1; fi
+    if [ "${WIZARD_SCOPE:-cluster}" != workers ] && [ "${CLI_COMPONENTS:-all}" != harbor ] && { [ "$masters" -lt 1 ] || [ "$(( masters % 2 ))" -ne 1 ]; }; then printf '控制平面与 etcd 数量必须为 1、3、5 等正奇数，避免高可用脑裂，请修改节点清单。\n'; return 1; fi
 }
 

@@ -24,7 +24,7 @@ load_env() {
     : "${HARBOR_SOURCE_DIR:=/var/lib/harbor/data}" "${HARBOR_VIP:=}" "${HARBOR_PASSWORD:=}"
     : "${HARBOR_CA:=}" "${HARBOR_CERT:=}" "${HARBOR_KEY:=}"
     : "${PKI_ROOT_CERT:=}" "${PKI_ROOT_KEY:=}"
-    : "${HARBOR_ADDRESS:=}" "${CLUSTER_VERIFY_MODE:=$(schema_default CLUSTER_VERIFY_MODE)}"
+    : "${HARBOR_ADDRESS:=}" "${CLUSTER_VERIFY_MODE:=$(schema_default CLUSTER_VERIFY_MODE)}" "${INSTALL_NERDCTL:=$(schema_default INSTALL_NERDCTL)}"
     : "${LOCAL_STORAGE:=$(schema_default LOCAL_STORAGE)}" "${LOCAL_PATH:=/data/local-pv}" "${NFS_MODE:=$(schema_default NFS_MODE)}" "${NFS_NODE:=}" "${NFS_SERVER:=}" "${NFS_PATH:=/data/nfs}"
     : "${ARTIFACT_FILE:=}" "${ARTIFACT_SHA256:=}" "${BOOTSTRAP_ARCHIVE:=}" "${DEPS_MODE:=iso}" "${NTP_SERVERS:=}" "${SSH_PARALLEL:=5}" "${NONINTERACTIVE:=false}"
     : "${CLUSTER_NAME:=rise}" "${STATE_DIR:=$ROOT/state/$CLUSTER_NAME}" "${VALIDATION_SCOPE:=cluster}"
@@ -94,9 +94,9 @@ validate_env() {
     for source in "${sources[@]}"; do [[ "$source" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || die 'NTP_SERVERS 必须是逗号分隔的 IP/域名'; done
     [ "${NTP_MODE:-existing}" != external ] || [ -n "${NTP_SERVERS:-}" ] || die 'external NTP 需要 NTP_SERVERS'
     case "$NFS_MODE" in none|new|existing) ;; *) die 'NFS_MODE 无效';; esac
-    case "$LOCAL_STORAGE:$HARBOR_HTTP:$NONINTERACTIVE" in *[!a-z:]* ) die '布尔配置无效';; esac
-    local val line role names=' ' addresses=' ' locals=0 first last lo hi number
-    for val in "$LOCAL_STORAGE" "$HARBOR_HTTP" "$NONINTERACTIVE"; do [[ "$val" = true || "$val" = false ]] || die '布尔字段只能是 true/false'; done
+    case "$LOCAL_STORAGE:$HARBOR_HTTP:$NONINTERACTIVE:${INSTALL_NERDCTL:-true}" in *[!a-z:]* ) die '布尔配置无效';; esac
+    local val line role names=' ' addresses=' ' locals=0 first last lo hi number explicit_etcd=0
+    for val in "$LOCAL_STORAGE" "$HARBOR_HTTP" "$NONINTERACTIVE" "${INSTALL_NERDCTL:-true}"; do [[ "$val" = true || "$val" = false ]] || die '布尔字段只能是 true/false'; done
     for val in "$K8S_DOMAIN" "$HARBOR_DOMAIN"; do [[ "$val" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || die '域名格式无效'; done
     [[ "$HARBOR_PORT" =~ ^[0-9]+$ && "$ENDPOINT_PORT" =~ ^[0-9]+$ && "$SSH_PARALLEL" =~ ^[0-9]+$ ]] || die '端口或并发数无效'
     [ "$HARBOR_PORT" -ge 1 ] && [ "$HARBOR_PORT" -le 65535 ] && [ "$ENDPOINT_PORT" -ge 1 ] && [ "$ENDPOINT_PORT" -le 65535 ] || die '端口越界'
@@ -145,8 +145,9 @@ validate_env() {
         if [ "$VALIDATION_SCOPE" = workers ]; then
             [ "$NODE_ROLES" = worker ] || die '新增节点仅允许 worker 角色'
         else
-            if has_role control_plane && ! has_role etcd; then NODE_ROLES="$NODE_ROLES,etcd"; fi
+            if has_role etcd; then explicit_etcd=$((explicit_etcd + 1)); fi
             if has_role etcd && ! has_role control_plane; then die 'etcd 必须与 master 同机'; fi
+            if has_role control_plane && ! has_role etcd; then NODE_ROLES="$NODE_ROLES,etcd"; fi
         fi
         normalized_nodes="$normalized_nodes$NODE_NAME|$NODE_ADDRESS|$NODE_INTERNAL|$NODE_USER|$NODE_PORT|$NODE_ARCH|$NODE_OS|$NODE_ROLES|$NODE_CONNECTION|$NODE_DATA|$NODE_DATA_MODE|$NODE_DEVICE|$NODE_PASS_ENV
 "
@@ -170,9 +171,10 @@ validate_env() {
     fi
     [ "$VALIDATION_SCOPE" != workers ] || return 0
     if [ "$COMPONENTS" != harbor ]; then
-    case "${#CONTROL_PLANES[@]}" in 1|3) ;; *) die 'master 数量只允许 1 或 3';; esac
+    [ "$explicit_etcd" -eq 0 ] || [ "$explicit_etcd" -eq "${#CONTROL_PLANES[@]}" ] || die '显式声明 etcd 时必须与全部 master 一一对应，禁止部分 master 挂载 etcd'
+    [ "${#CONTROL_PLANES[@]}" -ge 1 ] && [ "$(( ${#CONTROL_PLANES[@]} % 2 ))" -eq 1 ] || die 'master 与 etcd 节点数量必须为 1、3、5 等正奇数，避免高可用脑裂'
     [ "${#CONTROL_PLANES[@]}" -eq "${#ETCD_NODES[@]}" ] || die 'etcd 必须与 master 一一对应'
-    [ "${#CONTROL_PLANES[@]}" -ne 3 ] || [ "$ENDPOINT_TYPE" != local ] || die '三 master 必须使用 kube-vip 或 external'
+    [ "${#CONTROL_PLANES[@]}" -lt 3 ] || [ "$ENDPOINT_TYPE" != local ] || die '多 master 高可用（3、5… 节点）必须使用 kube-vip 或 external'
     [ "$ENDPOINT_TYPE" != kube-vip ] || [[ "$addresses" != *" $ENDPOINT_ADDRESS "* ]] || die 'API VIP 与节点地址冲突'
     fi
     if [ "$REGISTRY_MODE" = external-harbor ]; then

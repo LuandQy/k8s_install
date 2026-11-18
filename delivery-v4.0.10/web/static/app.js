@@ -5,34 +5,14 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const TOKEN_KEY = 'rise-wizard-token';
   const BASIC_KEYS = ['CLUSTER_NAME', 'COMPONENTS', 'DEPS_MODE', 'ARTIFACT_FILE', 'KUBE_VERSION',
-    'ENDPOINT_TYPE', 'ENDPOINT_ADDRESS', 'SSH_AUTH_MODE', 'NTP_MODE', 'NTP_NODE', 'NTP_SERVERS',
-    'NFS_MODE', 'NFS_NODE', 'NFS_SERVER', 'NFS_PATH', 'REGISTRY_MODE'];
+    'INSTALL_NERDCTL', 'ENDPOINT_TYPE', 'ENDPOINT_ADDRESS', 'SSH_AUTH_MODE', 'NTP_MODE', 'NTP_NODE', 'NTP_SERVERS',
+    'NFS_MODE', 'NFS_NODE', 'NFS_SERVER', 'NFS_PATH', 'REGISTRY_MODE', 'HARBOR_ADDRESS', 'HARBOR_DOMAIN', 'HARBOR_PORT'];
   const HARBOR_KEYS = ['REGISTRY_MODE', 'IMPORT_IMAGES', 'HARBOR_ADDRESS', 'HARBOR_DOMAIN',
     'HARBOR_PORT', 'HARBOR_HTTP', 'HARBOR_VIP', 'HARBOR_VRRP_ID', 'HARBOR_SOURCE_DIR',
     'HARBOR_CA', 'HARBOR_CERT', 'HARBOR_KEY'];
-  const RULES = {
-    ARTIFACT_FILE: {field: 'DEPS_MODE', notIn: ['online']},
-    BOOTSTRAP_ARCHIVE: {field: 'DEPS_MODE', in: ['bootstrap']},
-    SSH_KEY: {field: 'SSH_AUTH_MODE', equals: 'key'},
-    NTP_NODE: {field: 'NTP_MODE', equals: 'node'},
-    NTP_ALLOW_LOCAL: {field: 'NTP_MODE', equals: 'node'},
-    NTP_SERVERS: {field: 'NTP_MODE', equals: 'external'},
-    NFS_NODE: {field: 'NFS_MODE', equals: 'new'},
-    NFS_SERVER: {field: 'NFS_MODE', equals: 'existing'},
-    NFS_PATH: {field: 'NFS_MODE', in: ['new', 'existing']},
-    REGISTRY_MODE: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    IMPORT_IMAGES: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    HARBOR_ADDRESS: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    HARBOR_DOMAIN: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    HARBOR_PORT: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    HARBOR_HTTP: {field: 'COMPONENTS', in: ['all', 'harbor']},
-    HARBOR_VIP: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', equals: 'ha-harbor'}]},
-    HARBOR_VRRP_ID: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', equals: 'ha-harbor'}]},
-    HARBOR_SOURCE_DIR: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', notEquals: 'external-harbor'}]},
-    HARBOR_CA: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', equals: 'external-harbor'}]},
-    HARBOR_CERT: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', equals: 'external-harbor'}]},
-    HARBOR_KEY: {all: [{field: 'COMPONENTS', in: ['all', 'harbor']}, {field: 'REGISTRY_MODE', equals: 'external-harbor'}]}
-  };
+  function activeRules() {
+    return state.schema ? logic.schemaRules(state.schema) : {};
+  }
   const nodeRules = {
     user: (node) => node.connection === 'ssh',
     port: (node) => node.connection === 'ssh',
@@ -120,11 +100,15 @@
     holder.hidden = hidden;
     holder.querySelectorAll('input,select,textarea').forEach((control) => { control.disabled = hidden; });
   }
+  function masterTopology() {
+    const components = state.config && state.config.settings ? state.config.settings.COMPONENTS : 'all';
+    return logic.validateMasterEtcdTopology(state.config && state.config.nodes || [], components);
+  }
   function masterCount() {
-    return (state.config && state.config.nodes || []).reduce((count, node) => count + (Array.isArray(node.roles) && node.roles.indexOf('control_plane') >= 0 ? 1 : 0), 0);
+    return masterTopology().masterCount;
   }
   function masterValid() {
-    return [1, 3].indexOf(masterCount()) >= 0;
+    return masterTopology().valid;
   }
   function registryMode() {
     return state.config && state.config.settings ? state.config.settings.REGISTRY_MODE : 'harbor';
@@ -159,30 +143,35 @@
   }
   function applyMasterRules() {
     if (!state.config || !state.config.settings) return;
-    const count = masterCount();
-    const valid = [1, 3].indexOf(count) >= 0;
+    const topo = masterTopology();
+    const count = topo.masterCount;
+    const valid = topo.valid;
+    const isHarborOnly = state.config.settings.COMPONENTS === 'harbor';
     const status = $('master-count-status');
     const error = $('master-count-error');
     if (status) {
-      status.textContent = 'Master：' + count + (valid ? '' : '（仅允许 1 或 3）');
+      status.textContent = isHarborOnly
+        ? 'Master/Etcd：纯 Harbor 模式免配'
+        : ('Master/Etcd：' + count + '/' + topo.etcdCount + (valid ? '（奇数高可用就绪）' : '（须同机且为 1、3、5… 正奇数）'));
       status.className = 'status-chip ' + (valid ? 'valid' : 'invalid');
     }
     if (error) {
       error.hidden = valid;
-      error.textContent = valid ? '' : 'Master 节点数量必须为 1 或 3；当前为 ' + count + '。请调整节点矩阵中的 Master 勾选。';
+      error.textContent = valid ? '' : topo.reason;
     }
     const vip = document.querySelector('[data-setting-key="ENDPOINT_ADDRESS"]');
     if (vip) {
-      setHidden(vip, count === 1);
+      const needVip = !isHarborOnly && (count >= 3 || state.config.settings.ENDPOINT_TYPE !== 'local');
+      setHidden(vip, !needVip);
       const input = vip.querySelector('input');
-      if (input) input.required = count === 3;
+      if (input) input.required = !isHarborOnly && count >= 3;
     }
     const type = state.config.settings.ENDPOINT_TYPE;
     const typeSelect = document.getElementById('setting-ENDPOINT_TYPE');
-    if (count === 1 && type !== 'local') {
+    if (!isHarborOnly && count === 1 && type !== 'local') {
       state.config.settings.ENDPOINT_TYPE = 'local';
       if (typeSelect) typeSelect.value = 'local';
-    } else if (count === 3 && type === 'local') {
+    } else if (!isHarborOnly && count >= 3 && type === 'local') {
       state.config.settings.ENDPOINT_TYPE = 'kube-vip';
       if (typeSelect) typeSelect.value = 'kube-vip';
     }
@@ -201,8 +190,9 @@
   }
   function renderMasterStepError() {
     const area = $('results-content');
+    const topo = masterTopology();
     $('result-status').textContent = '未通过'; $('result-status').className = 'status-chip invalid';
-    area.replaceChildren(el('p', 'Master 节点数量必须为 1 或 3；当前为 ' + masterCount() + '。请在节点矩阵中勾选 1 个或 3 个 Master。', 'result-errors'));
+    area.replaceChildren(el('p', topo.reason || 'Master/Etcd 节点数量必须为 1、3、5… 正奇数且同机绑定。', 'result-errors'));
     $('next-step-3').disabled = true;
   }
   function renderHarborStepError() {
@@ -257,7 +247,8 @@
   function fieldControl(field, value, prefix, onChange) {
     const holder = el('div', null, 'field');
     holder.dataset.settingKey = prefix === 'setting' ? field.key : '';
-    if (prefix === 'setting' && RULES[field.key]) holder.dataset.showWhen = JSON.stringify(RULES[field.key]);
+    const rulesMap = activeRules();
+    if (prefix === 'setting' && rulesMap[field.key]) holder.dataset.showWhen = JSON.stringify(rulesMap[field.key]);
     if (prefix === 'setting' && (field.key === 'SSH_AUTH_MODE' || field.key === 'SSH_KEY')) holder.dataset.requiresSsh = 'true';
     if (prefix.indexOf('node-') === 0) {
       holder.dataset.nodeField = field.key;
@@ -378,9 +369,12 @@
         if (key === 'COMPONENTS') { normalizeHarborRoles(); renderSettings(); renderNodes(); renderCredentials(); }
         if (key === 'ENDPOINT_TYPE') applyMasterRules();
         if (key === 'REGISTRY_MODE') {
+          if (value === 'external-harbor' && state.config.settings.COMPONENTS !== 'k8s') {
+            state.config.settings.COMPONENTS = 'k8s';
+          }
           const advanced = document.querySelector('#advanced-settings details');
           if (advanced) advanced.open = true;
-          normalizeHarborRoles(); renderNodes();
+          normalizeHarborRoles(); renderSettings(); renderNodes(); renderCredentials();
         }
         if (key === 'SSH_AUTH_MODE') renderNodes();
       }));
@@ -533,7 +527,7 @@
     return cell;
   }
   function roleLabels() {
-    return {control_plane: 'Master', worker: 'Worker', etcd: 'Etcd', registry: 'Harbor', nfs: 'NFS', ntp: 'NTP'};
+    return {control_plane: 'Master', worker: 'Worker', etcd: 'Etcd(同机)', registry: 'Harbor', nfs: 'NFS', ntp: 'NTP'};
   }
   function roleControl(node) {
     const holder = el('div', null, 'role-options');
@@ -557,6 +551,10 @@
           } else {
             node.roles = Array.from(holder.querySelectorAll('input:checked')).map((item) => item.value);
           }
+          changed(); renderNodes(); return;
+        }
+        if (role === 'control_plane' || role === 'etcd') {
+          node.roles = logic.syncMasterEtcdRoles(node.roles, role, box.checked);
           changed(); renderNodes(); return;
         }
         node.roles = Array.from(holder.querySelectorAll('input:checked')).map((item) => item.value);
@@ -706,9 +704,9 @@
     });
   }
   function pruneConfig() {
-    const config = logic.pruneConfig(state.config, RULES, authMode());
+    const config = logic.pruneConfig(state.config, activeRules(), authMode());
     delete config.settings.ARTIFACT_SHA256;
-    if (masterCount() === 1) delete config.settings.ENDPOINT_ADDRESS;
+    if (masterCount() === 1 && config.settings.ENDPOINT_TYPE === 'local') delete config.settings.ENDPOINT_ADDRESS;
     if (config.settings.SSH_AUTH_MODE !== 'key') delete config.settings.SSH_KEY;
     if (config.settings.SSH_AUTH_MODE === 'password') {
       config.nodes.forEach((node, index) => { if (node.connection === 'ssh') node.password_env = 'NODE' + (index + 1) + '_PASSWORD'; });
@@ -729,6 +727,14 @@
   function loadConfig(config) {
     state.generation += 1;
     state.config = clone(config);
+    const anyExplicitEtcd = (state.config.nodes || []).some((node) => Array.isArray(node.roles) && node.roles.indexOf('etcd') >= 0);
+    if (!anyExplicitEtcd) {
+      (state.config.nodes || []).forEach((node) => {
+        if (Array.isArray(node.roles) && node.roles.indexOf('control_plane') >= 0 && node.roles.indexOf('etcd') < 0) {
+          node.roles.push('etcd');
+        }
+      });
+    }
     if (!state.config.settings.ARTIFACT_FILE && suggestionPath()) state.config.settings.ARTIFACT_FILE = suggestionPath();
     state.dirty = false;
     state.credentials = {harbor: '', nodes: new Map()};
@@ -800,7 +806,7 @@
     finally { const input = $('import-env-file'); if (input) input.value = ''; }
   }
   async function validateCurrent(kind) {
-    if (!masterValid()) { renderMasterStepError(); notice('Master 节点数量必须为 1 或 3。', 'error'); return; }
+    if (!masterValid()) { renderMasterStepError(); notice(masterTopology().reason || 'Master/Etcd 节点数量必须为 1、3、5… 正奇数。', 'error'); return; }
     if (!harborRoleValid()) { applyHarborRules(); renderHarborStepError(); notice('Harbor 节点数量与仓库模式不匹配。', 'error'); return; }
     setBusy(true);
     try {

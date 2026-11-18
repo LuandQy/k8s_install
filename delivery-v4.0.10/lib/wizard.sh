@@ -135,8 +135,8 @@ wizard_setup() {
         done <<< "$WIZARD_NODES"
         endpoint=local; endpoint_address=''; endpoint_port=6443
         if [ "${CLI_COMPONENTS:-all}" != harbor ]; then
-            choice=1; [ "$masters" -ne 3 ] || choice=2
-            if [ "$masters" -eq 3 ]; then
+            choice=1; [ "$masters" -lt 3 ] || choice=2
+            if [ "$masters" -ge 3 ]; then
                 ask_valid 'API 入口：2 kube-vip 虚拟 IP；3 已有外部负载均衡' "$choice" '2|3'
             else ask_valid 'API 入口：1 单控制平面本机；2 kube-vip；3 外部负载均衡' "$choice" '1|2|3'; fi
             case "$REPLY" in 1) endpoint=local;; 2) endpoint=kube-vip;; 3) endpoint=external;; esac

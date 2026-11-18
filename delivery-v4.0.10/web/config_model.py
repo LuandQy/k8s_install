@@ -18,11 +18,12 @@ MAX_ENV_BYTES = 256 * 1024
 MAX_NODES = 32
 MAX_STRING = 2048
 _PATH_KEYS = frozenset({
-    'WORK_DIR', 'STATE_DIR', 'PACKAGE_WORK_DIR', 'SSH_KEY',
+    'WORK_DIR', 'STATE_DIR', 'PACKAGE_WORK_DIR', 'SSH_KEY', 'SSH_KNOWN_HOSTS',
+    'PKI_ROOT_CERT', 'PKI_ROOT_KEY',
     'HARBOR_SOURCE_DIR', 'HARBOR_CA', 'HARBOR_CERT', 'HARBOR_KEY', 'BOOTSTRAP_ARCHIVE',
     'LOCAL_PATH', 'NFS_PATH', 'ARTIFACT_FILE', 'data_path', 'device',
 })
-_DIGEST_KEYS = frozenset({'ARTIFACT_SHA256'})
+_DIGEST_KEYS = frozenset({'ARTIFACT_SHA256', 'SSH_KNOWN_HOSTS_SHA256'})
 _CONTROL = re.compile(r'[\x00-\x1f\x7f-\x9f]')
 _SAFE_PATH = re.compile(r'/[a-zA-Z0-9_./-]+\Z')
 _NAME = re.compile(r'[A-Z_][A-Z0-9_]{0,63}\Z')
@@ -281,21 +282,37 @@ def _from_env_value(value, field):
     return value
 
 
+_CLI_ONLY_KEYS = frozenset({
+    'ZONE', 'PKI_ROOT_CERT', 'PKI_ROOT_KEY', 'SSH_KNOWN_HOSTS', 'SSH_KNOWN_HOSTS_SHA256',
+})
+
+
 def import_env(text):
     """Parse strict literal assignments, including wizard %q node serialization.
 
     NODES must be explicitly present (an empty NODES is an incomplete draft).
     Missing known settings use the schema's CLI-compatible defaults. Password
     values, NONINTERACTIVE, arbitrary variables and duplicate assignments fail.
+    CLI-only state keys (ZONE, PKI_ROOT_*, SSH_KNOWN_HOSTS*) are syntax-checked
+    and ignored so CLI state receipts can be imported into Web without error.
     """
     values = _LiteralEnv(text).assignments()
     spec = schema()
     fields = {f['key']: f for f in spec['settings']}
-    if set(values) - (set(fields) | {'NODES'}):
+    if set(values) - (set(fields) | {'NODES'} | _CLI_ONLY_KEYS):
         raise ModelError('env 含未知或禁止变量；不接收密码值、运行参数或自定义变量')
+    for cli_key in set(values) & _CLI_ONLY_KEYS:
+        raw_val = values[cli_key]
+        if cli_key in _PATH_KEYS and raw_val:
+            if not _SAFE_PATH.fullmatch(raw_val) or '..' in raw_val:
+                raise ModelError(cli_key + ' 只接受不含空格、中文或 .. 的绝对路径')
+        elif cli_key in _DIGEST_KEYS and raw_val:
+            if not re.fullmatch('[0-9a-f]{64}', raw_val):
+                raise ModelError(cli_key + ' 必须是 64 位小写 SHA256 或留空')
     if 'NODES' not in values:
         raise ModelError('env 必须显式包含 NODES；不会猜测或复用默认拓扑')
-    settings = {key: _from_env_value(value, fields[key]) for key, value in values.items() if key != 'NODES'}
+    settings = {key: _from_env_value(value, fields[key]) for key, value in values.items()
+                if key != 'NODES' and key not in _CLI_ONLY_KEYS}
     nodes = []
     for line in values['NODES'].split('\n'):
         if not line.strip():
@@ -309,6 +326,41 @@ def import_env(text):
                 [] if field['key'] == 'roles' else _from_env_value(value, field))
         nodes.append(node)
     return normalize_config({'schema_version': 1, 'settings': settings, 'nodes': nodes})
+
+
+def validate_topology(config):
+    """Validate Master/Etcd co-located odd-quorum HA constraints and VIP rules."""
+    config = normalize_config(config)
+    settings = config['settings']
+    nodes = config['nodes']
+    components = settings.get('COMPONENTS', 'all')
+    if settings.get('VALIDATION_SCOPE', 'cluster') == 'workers':
+        return config
+    if not nodes:
+        raise ModelError('节点清单不能为空')
+    masters = 0
+    etcds = 0
+    for node in nodes:
+        roles = set(node.get('roles') or [])
+        has_master = 'control_plane' in roles
+        has_etcd = 'etcd' in roles
+        if has_etcd and not has_master:
+            raise ModelError('节点 %s 不能单独挂载 etcd；etcd 必须与 master 同机部署' % (node.get('name') or ''))
+        if has_master:
+            masters += 1
+        if has_etcd:
+            etcds += 1
+    if components == 'harbor':
+        return config
+    if etcds > 0 and etcds != masters:
+        raise ModelError('Master 与 Etcd 必须同机一一对应（当前 Master=%s，Etcd=%s）' % (masters, etcds))
+    if masters < 1 or masters % 2 == 0:
+        raise ModelError('Master 与 Etcd 节点数量必须为 1、3、5 等正奇数（当前为 %s），偶数节点存在高可用脑裂风险' % masters)
+    if masters >= 3 and settings.get('ENDPOINT_TYPE') == 'local':
+        raise ModelError('多 Master 高可用（%s 节点）必须使用 kube-vip 或 external 入口' % masters)
+    if settings.get('ENDPOINT_TYPE') in ('kube-vip', 'external') and not settings.get('ENDPOINT_ADDRESS', '').strip():
+        raise ModelError('%s 入口模式必须填写 ENDPOINT_ADDRESS' % settings.get('ENDPOINT_TYPE'))
+    return config
 
 
 def _quote(value):

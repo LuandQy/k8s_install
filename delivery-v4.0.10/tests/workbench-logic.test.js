@@ -45,4 +45,57 @@ assert.strictEqual('password' in pruned.nodes[1], false);
 const localOnly = logic.pruneConfig({settings: {SSH_AUTH_MODE: 'bootstrap', SSH_KEY: '/root/key'}, nodes: [{name: 'n1', connection: 'local'}]}, {}, 'bootstrap');
 assert.strictEqual('SSH_AUTH_MODE' in localOnly.settings, false);
 assert.strictEqual('SSH_KEY' in localOnly.settings, false);
+
+// any combinator & declarative schemaRules
+assert.strictEqual(logic.ruleVisible({any: [{field: 'COMPONENTS', equals: 'k8s'}, {field: 'REGISTRY_MODE', equals: 'external-harbor'}]}, {COMPONENTS: 'k8s', REGISTRY_MODE: 'harbor'}), true);
+assert.strictEqual(logic.ruleVisible({any: [{field: 'COMPONENTS', equals: 'k8s'}, {field: 'REGISTRY_MODE', equals: 'external-harbor'}]}, {COMPONENTS: 'all', REGISTRY_MODE: 'harbor'}), false);
+
+const fs = require('fs');
+const path = require('path');
+const rawSchema = JSON.parse(fs.readFileSync(path.join(__dirname, '../web/schema.json'), 'utf8'));
+const derivedRules = logic.schemaRules(rawSchema);
+const extHarbor = logic.pruneConfig({
+  settings: {
+    COMPONENTS: 'k8s',
+    REGISTRY_MODE: 'external-harbor',
+    HARBOR_ADDRESS: '192.0.2.50',
+    HARBOR_DOMAIN: 'harbor.corp.example',
+    HARBOR_PORT: 443,
+    HARBOR_HTTP: false,
+    HARBOR_CA: '/etc/ssl/certs/harbor-ca.pem',
+    INSTALL_NERDCTL: true
+  },
+  nodes: [{name: 'm1', connection: 'ssh', user: 'root', port: 22, roles: ['control_plane', 'worker', 'etcd'], data_mode: 'native'}]
+}, derivedRules, 'key');
+assert.strictEqual(extHarbor.settings.REGISTRY_MODE, 'external-harbor');
+assert.strictEqual(extHarbor.settings.HARBOR_ADDRESS, '192.0.2.50');
+assert.strictEqual(extHarbor.settings.HARBOR_DOMAIN, 'harbor.corp.example');
+assert.strictEqual(extHarbor.settings.HARBOR_CA, '/etc/ssl/certs/harbor-ca.pem');
+assert.strictEqual(extHarbor.settings.INSTALL_NERDCTL, true);
+
+// Master/Etcd co-located odd-quorum validation (1, 3, 5, 7...)
+function makeMasters(n, withEtcd = true) {
+  const arr = [];
+  for (let i = 1; i <= n; i += 1) {
+    arr.push({name: 'm' + i, roles: withEtcd ? ['control_plane', 'etcd', 'worker'] : ['control_plane', 'worker']});
+  }
+  return arr;
+}
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(1), 'all').valid, true);
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(3), 'all').valid, true);
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(5), 'all').valid, true);
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(7), 'k8s').valid, true);
+assert.strictEqual(logic.validateMasterEtcdTopology([], 'all').valid, false);
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(2), 'all').valid, false);
+assert.strictEqual(logic.validateMasterEtcdTopology(makeMasters(4), 'all').valid, false);
+assert.strictEqual(logic.validateMasterEtcdTopology([{name: 'm1', roles: ['control_plane', 'etcd']}, {name: 'm2', roles: ['control_plane']}, {name: 'm3', roles: ['control_plane', 'etcd']}], 'all').valid, false);
+assert.strictEqual(logic.validateMasterEtcdTopology([{name: 'w1', roles: ['worker', 'etcd']}, {name: 'm1', roles: ['control_plane', 'etcd']}], 'all').valid, false);
+assert.strictEqual(logic.validateMasterEtcdTopology([{name: 'r1', roles: ['registry']}], 'harbor').valid, true);
+
+// Role sync helper
+assert.deepStrictEqual(logic.syncMasterEtcdRoles(['worker'], 'control_plane', true), ['worker', 'control_plane', 'etcd']);
+assert.deepStrictEqual(logic.syncMasterEtcdRoles(['control_plane', 'etcd', 'worker'], 'control_plane', false), ['worker']);
+assert.deepStrictEqual(logic.syncMasterEtcdRoles(['worker'], 'etcd', true), ['worker', 'control_plane', 'etcd']);
+assert.deepStrictEqual(logic.syncMasterEtcdRoles(['control_plane', 'etcd', 'registry'], 'etcd', false), ['registry']);
+
 console.log('WORKBENCH_LOGIC_OK');
