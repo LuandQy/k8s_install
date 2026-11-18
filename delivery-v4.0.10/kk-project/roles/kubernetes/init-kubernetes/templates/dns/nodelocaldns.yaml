@@ -1,0 +1,340 @@
+{{- $autoHosts := list -}}
+{{- $registryHost := .image_registry.auth.registry | splitList "/" | first | splitList ":" | first -}}
+{{- $registryAddress := get (.rise | default dict) "harbor_address" | default "" -}}
+{{- if and ($registryHost | empty | not) ($registryHost | isIP | not) -}}
+  {{- if $registryAddress -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" $registryAddress $registryHost) -}}
+  {{- else if .image_registry.ha_vip | empty | not -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" .image_registry.ha_vip $registryHost) -}}
+  {{- else if or (.image_registry.type | eq "harbor") (.image_registry.type | eq "docker-registry") -}}
+    {{- if .groups.image_registry | empty | not -}}
+      {{- if (index .hostvars (.groups.image_registry | first) "internal_ipv4") | empty | not -}}
+        {{- $autoHosts = append $autoHosts (printf "%s %s" (index .hostvars (.groups.image_registry | first) "internal_ipv4") $registryHost) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- range .groups.image_registry | default list -}}
+  {{- $hostname := index $.hostvars . "hostname" -}}
+  {{- if (index $.hostvars . "internal_ipv4") | empty | not -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" (index $.hostvars . "internal_ipv4") $hostname) -}}
+  {{- end -}}
+  {{- if (index $.hostvars . "internal_ipv6") | empty | not -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" (index $.hostvars . "internal_ipv6") $hostname) -}}
+  {{- end -}}
+{{- end -}}
+{{- $nfsServer := .storage_class.nfs.server | default "" -}}
+{{- if and ($nfsServer | empty | not) ($nfsServer | isIP | not) -}}
+  {{- if .groups.nfs | empty | not -}}
+    {{- if (index .hostvars (.groups.nfs | first) "internal_ipv4") | empty | not -}}
+      {{- $autoHosts = append $autoHosts (printf "%s %s" (index .hostvars (.groups.nfs | first) "internal_ipv4") $nfsServer) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- range .groups.nfs | default list -}}
+  {{- $hostname := index $.hostvars . "hostname" -}}
+  {{- if (index $.hostvars . "internal_ipv4") | empty | not -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" (index $.hostvars . "internal_ipv4") $hostname) -}}
+  {{- end -}}
+  {{- if (index $.hostvars . "internal_ipv6") | empty | not -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" (index $.hostvars . "internal_ipv6") $hostname) -}}
+  {{- end -}}
+{{- end -}}
+{{- /* API aliases must be reachable from Pods, never inherited node loopback. */ -}}
+{{- $endpoint := .kubernetes.control_plane_endpoint -}}
+{{- $apiName := $endpoint.host | default "" | lower | trimSuffix "." -}}
+{{- $apiIPs := list -}}
+{{- $rise := .rise | default dict -}}
+{{- if and $apiName (not (isIP $apiName)) -}}
+  {{- if $rise.api_address | default "" -}}
+    {{- $apiIPs = append $apiIPs $rise.api_address -}}
+  {{- else if eq ($endpoint.type | default "local") "kube-vip" -}}
+    {{- $vip := $endpoint.kube_vip.address | default "" -}}
+    {{- if not $vip -}}{{ fail (printf "Pod DNS API alias %s: kube-vip.address is required" $apiName) }}{{- end -}}
+    {{- $apiIPs = append $apiIPs $vip -}}
+  {{- else if $endpoint.local.address | default "" -}}
+    {{- $apiIPs = append $apiIPs $endpoint.local.address -}}
+  {{- else if has ($endpoint.type | default "local") (list "local" "haproxy") -}}
+    {{- range .groups.kube_control_plane | default list -}}
+      {{- range list (index $.hostvars . "internal_ipv4" | default "") (index $.hostvars . "internal_ipv6" | default "") -}}
+        {{- if . -}}{{- $apiIPs = append $apiIPs . -}}{{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- else -}}
+    {{- fail (printf "Pod DNS API alias %s: endpoint type %s requires an explicit rise.api_address or local.address" $apiName $endpoint.type) -}}
+  {{- end -}}
+  {{- $apiIPs = uniq $apiIPs -}}
+  {{- if not $apiIPs -}}{{ fail (printf "Pod DNS API alias %s: no declared control-plane internal address" $apiName) }}{{- end -}}
+  {{- range $apiIPs -}}
+    {{- $ip := . | toString -}}
+    {{- /* IPv4-mapped IPv6 is deliberately rejected: use its IPv4 address. */ -}}
+    {{- if or (not (isIP $ip)) (regexMatch "^(0|127)\\.|^169\\.254\\.|^2(2[4-9]|[3-5][0-9])\\." $ip) (eq (trimAll ":0" $ip) "") (eq (trimAll ":0" $ip) "1") (regexMatch "(?i)^fe[89ab][0-9a-f]:|^ff" $ip) (and (contains ":" $ip) (contains "." $ip)) (regexMatch "(?i)^([0:]+)?ffff:" $ip) -}}
+      {{- fail (printf "Pod DNS API alias %s: address %s is invalid, loopback, unspecified, link-local, multicast or IPv4-mapped" $apiName $ip) -}}
+    {{- end -}}
+    {{- $autoHosts = append $autoHosts (printf "%s %s" $ip $apiName) -}}
+  {{- end -}}
+{{- end -}}
+{{- /* Preserve declared hosts; reject conflicting managed names instead of
+       serving a mixture of API/registry/NFS addresses. The API may explicitly
+       have several control-plane addresses; ordinary names may be dual-stack. */ -}}
+{{- $managed := dict -}}
+{{- range $autoHosts -}}
+  {{- $parts := splitList " " . -}}
+  {{- $ip := first $parts -}}
+  {{- $name := last $parts | lower | trimSuffix "." -}}
+  {{- $known := get $managed $name | default list -}}
+  {{- range $known -}}
+    {{- if and (ne . $ip) (eq (contains ":" .) (contains ":" $ip)) (ne $name $apiName) -}}
+      {{- fail (printf "Pod DNS managed host %s conflicts: %s versus %s" $name . $ip) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if and (eq $name $apiName) (not (has $ip $apiIPs)) -}}
+    {{- fail (printf "Pod DNS API alias %s conflicts with registry/NFS address %s" $apiName $ip) -}}
+  {{- end -}}
+  {{- $_ := set $managed $name (uniq (append $known $ip)) -}}
+{{- end -}}
+{{- $customHosts := .dns.coredns.dns_etc_hosts | default list -}}
+{{- range $customHosts -}}
+  {{- $line := splitList "#" . | first | trim -}}
+  {{- if $line -}}
+    {{- $parts := regexSplit "\\s+" $line -1 -}}
+    {{- if or (lt (len $parts) 2) (not (isIP (first $parts))) -}}
+      {{- fail (printf "Pod DNS dns_etc_hosts has an invalid address/hostname entry: %s" $line) -}}
+    {{- end -}}
+    {{- $ip := first $parts -}}
+    {{- range rest $parts -}}
+      {{- $name := lower . | trimSuffix "." -}}
+      {{- if and (hasKey $managed $name) (not (has $ip (get $managed $name))) -}}
+        {{- fail (printf "Pod DNS dns_etc_hosts conflicts for %s: %s; expected %s" $name $ip (join "," (get $managed $name))) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $allHosts := uniq (concat $customHosts $autoHosts) -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    addonmanager.kubernetes.io/mode: Reconcile
+spec:
+  selector:
+    matchLabels:
+      k8s-app: nodelocaldns
+  template:
+    metadata:
+      labels:
+        k8s-app: nodelocaldns
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      serviceAccountName: nodelocaldns
+      hostNetwork: true
+      dnsPolicy: Default  # Don't use cluster DNS.
+      tolerations:
+        - effect: NoSchedule
+          operator: "Exists"
+        - effect: NoExecute
+          operator: "Exists"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+      containers:
+      - name: node-cache
+        image: {{ .dns.nodelocaldns.image.registry }}/{{ .dns.nodelocaldns.image.repository }}:{{ .dns.nodelocaldns.image.tag }}
+        resources:
+          limits:
+            memory: 400Mi
+          requests:
+            cpu: 100m
+            memory: 70Mi
+        args: 
+          - -localip
+          - {{ .dns.nodelocaldns.ip }}
+          - -conf
+          - /etc/coredns/Corefile
+          - -upstreamsvc
+          - coredns
+          - -metrics-listen-address
+          - 127.0.0.1:9353
+        securityContext:
+          privileged: true
+        ports:
+          - containerPort: 53
+            name: dns
+            protocol: UDP
+          - containerPort: 53
+            name: dns-tcp
+            protocol: TCP
+        livenessProbe:
+          httpGet:
+            host: {{ .dns.nodelocaldns.ip }}
+            path: /health
+            port: 9254
+            scheme: HTTP
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            host: {{ .dns.nodelocaldns.ip }}
+            path: /health
+            port: 9254
+            scheme: HTTP
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 10
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/coredns
+          - name: xtables-lock
+            mountPath: /run/xtables.lock
+      volumes:
+        - name: config-volume
+          configMap:
+            name: nodelocaldns
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate
+      # Minimize downtime during a rolling upgrade or deletion; tell Kubernetes to do a "force
+      # deletion": https://kubernetes.io/docs/concepts/workloads/pods/pod/#termination-of-pods.
+      terminationGracePeriodSeconds: 0
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 20%
+    type: RollingUpdate
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodelocaldns
+  namespace: kube-system
+  labels:
+    addonmanager.kubernetes.io/mode: EnsureExists
+data:
+  Corefile: |
+  {{- range .dns.coredns.external_zones }}
+    {{ .zones | join " " }}{
+      log
+      errors
+      loadbalance
+      cache {{ .cache }}
+      reload
+      loop
+      bind {{ .kubernetes.networking.dns_cache_ip }}
+
+    {{- range .rewrite }}
+      rewrite {{ .rule }} {
+        {{ .field }} {{ .type }} {{ .value }}
+        {{ .options }}
+      }
+    {{- end }}
+
+    {{- range .forward }}
+      forward {{ .from }} {{ .to | join " " }} {
+      {{- if .except | empty | not }}
+        except {{ .except | join " " }}
+      {{- end }}
+      {{- if .force_tcp }}
+        force_tcp
+      {{- end }}
+      {{ if .prefer_udp }}
+        prefer_udp
+      {{- end }}
+        max_fails {{ .max_fails | default 2 }}
+        expire {{ .expire | default "10s" }}
+      {{- if .tls }}
+        tls {{ .tls.cert_file }} {{ .tls.key_file }} {{ .tls.ca_file }}
+      {{- end }}
+      {{- if .tls_servername }}
+        tls_servername {{ .tls_servername }}
+      {{- end }}
+      {{- if .policy }}
+        policy {{ .policy }}
+      {{- end }}
+      {{- if .health_check }}
+        health_check {{ .health_check }}
+      {{- end }}
+      {{- if .max_concurrent }}
+        max_concurrent {{ .max_concurrent }}
+      {{- end }}
+      }
+    {{- end }}
+
+    {{- if $allHosts | empty | not }}
+      # Only declared entries: do not import implicit node/Pod /etc/hosts.
+      hosts /dev/null {
+      {{- range $allHosts }}
+        {{ . }}
+      {{- end }}
+        fallthrough
+      }
+    {{- end }}
+    }
+  {{- end }}
+
+    {{ .dns.domain }}:53 {
+      errors
+      cache {
+         success 9984 30
+          denial 9984 5
+      }
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+        force_tcp
+      }
+      health {{ .dns.nodelocaldns.ip }}:9254
+    }
+    in-addr.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+        force_tcp
+      }
+    }
+    ip6.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . {{ .dns.coredns.ip }} {
+          force_tcp
+      }
+    }
+    .:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind {{ .dns.nodelocaldns.ip }}
+      forward . /etc/resolv.conf
+    {{- if $allHosts | empty | not }}
+      # Only declared entries: do not import implicit node/Pod /etc/hosts.
+      hosts /dev/null {
+      {{- range $allHosts }}
+        {{ . }}
+      {{- end }}
+        fallthrough
+      }
+    {{- end }}
+    }

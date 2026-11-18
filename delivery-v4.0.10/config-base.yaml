@@ -1,0 +1,98 @@
+# Rendered by deploy.sh; do not pass this template directly to kk.
+apiVersion: kubekey.kubesphere.io/v1
+kind: Config
+spec:
+${CERTS_POLICY_YAML}
+  zone: ${ZONE_YAML}
+  work_dir: ${WORK_DIR_YAML}
+  kubernetes:
+    cluster_name: ${CLUSTER_NAME}
+    kube_version: ${KUBE_VERSION}
+    kube_proxy:
+      mode: iptables
+    control_plane_endpoint:
+      host: ${K8S_DOMAIN}
+      type: ${KK_ENDPOINT_TYPE}
+      port: ${ENDPOINT_PORT}
+      local:
+        address: ${ENDPOINT_ADDRESS_YAML}
+      kube_vip:
+        address: ${ENDPOINT_ADDRESS_YAML}
+        env:
+          svc_enable: "false"
+  image_registry:
+    type: ${REGISTRY_INSTALL_TYPE_YAML}
+    # Keep the Harbor listener and the registry endpoint port in sync.
+    https_port: ${HARBOR_PORT}
+    http_port: 80
+    ha_vip: ${HARBOR_VIP_YAML}
+    # VRRP router id for Harbor HA keepalived: unique per L2 segment.
+    virtual_router_id: ${HARBOR_VRRP_ID_YAML}
+    harbor:
+      data_dir: ${HARBOR_SOURCE_DIR_YAML}
+    auth:
+      registry: ${HARBOR_DOMAIN}:${HARBOR_PORT}
+      username: admin
+      password: ${HARBOR_PASSWORD_YAML}
+      plain_http: ${HARBOR_HTTP}
+      skip_tls_verify: false
+      ca_file: ${CA_FILE_YAML}
+${WORKER_AUTH_YAML}
+  cri:
+    container_manager: containerd
+    cgroup_driver: systemd
+    containerd:
+      config_policy: override
+  cni:
+    type: calico
+    pod_cidr: ${POD_CIDR}
+    service_cidr: ${SERVICE_CIDR}
+  storage_class:
+    local:
+      enabled: ${LOCAL_STORAGE}
+      default: ${LOCAL_STORAGE}
+      path: ${LOCAL_PATH_YAML}
+    nfs:
+      enabled: ${NFS_ENABLED}
+      default: ${NFS_DEFAULT}
+      server: ${NFS_SERVER_YAML}
+      path: ${NFS_PATH_YAML}
+  native:
+    ntp:
+      enabled: ${NTP_ENABLED}
+      servers: ${NTP_SERVERS_YAML}
+    nfs:
+      share_dir: [${NFS_PATH_YAML}]
+  nfs:
+    share_dir: [${NFS_PATH_YAML}]
+  download:
+    fetch: ${DOWNLOAD_FETCH}
+    arch: ${ARCHES_YAML}
+    kubernetes:
+      kube_version: [${KUBE_VERSION}]
+    cni:
+      type: [calico]
+    cri:
+      container_manager: [containerd, docker]
+    image_registry:
+      type: ${DOWNLOAD_REGISTRY_TYPES_YAML}
+    storage_class:
+      local:
+        enabled: ${LOCAL_STORAGE}
+      nfs:
+        enabled: ${NFS_ENABLED}
+    images:
+      manifests: ${SELECTED_MANIFESTS_YAML}
+      policy: strict
+      projectcalico/tigera-operator: ${CALICO_IMAGES_YAML}
+  rise:
+    os_prepared: ${OS_PREPARED}
+    image_manifests: ${SELECTED_MANIFESTS_YAML}
+    image_arches: ${ARCHES_YAML}
+${COMPONENT_FIELDS_YAML}${WORKER_FIELDS_YAML}
+    projects_helper: ${PROJECTS_HELPER_YAML}
+    projects_config: ${PROJECTS_CONFIG_YAML}
+    selected_images: ${SELECTED_IMAGES_YAML}
+    tools_dir: ${TOOLS_DIR_YAML}
+    external_cert: ${EXTERNAL_CERT_YAML}
+    external_key: ${EXTERNAL_KEY_YAML}

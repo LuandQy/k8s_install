@@ -1,0 +1,34 @@
+{
+  "v3.31.7": [
+    "quay.io/tigera/operator:v1.40.15",
+    "docker.io/calico/node:v3.31.7",
+    "docker.io/calico/cni:v3.31.7",
+    "docker.io/calico/kube-controllers:v3.31.7",
+    "docker.io/calico/typha:v3.31.7",
+    "docker.io/calico/ctl:v3.31.7",
+    "docker.io/calico/apiserver:v3.31.7",
+    "docker.io/calico/csi:v3.31.7",
+    "docker.io/calico/node-driver-registrar:v3.31.7",
+    "docker.io/calico/pod2daemon-flexvol:v3.31.7",
+    "docker.io/calico/key-cert-provisioner:v3.31.7",
+    "docker.io/calico/goldmane:v3.31.7",
+    "docker.io/calico/whisker:v3.31.7",
+    "docker.io/calico/whisker-backend:v3.31.7"
+  ],
+  "v3.32.2": [
+    "quay.io/tigera/operator:v1.42.6",
+    "docker.io/calico/node:v3.32.2",
+    "docker.io/calico/cni:v3.32.2",
+    "docker.io/calico/kube-controllers:v3.32.2",
+    "docker.io/calico/typha:v3.32.2",
+    "docker.io/calico/ctl:v3.32.2",
+    "docker.io/calico/apiserver:v3.32.2",
+    "docker.io/calico/csi:v3.32.2",
+    "docker.io/calico/node-driver-registrar:v3.32.2",
+    "docker.io/calico/pod2daemon-flexvol:v3.32.2",
+    "docker.io/calico/key-cert-provisioner:v3.32.2",
+    "docker.io/calico/goldmane:v3.32.2",
+    "docker.io/calico/whisker:v3.32.2",
+    "docker.io/calico/whisker-backend:v3.32.2"
+  ]
+}

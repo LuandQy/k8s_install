@@ -1,0 +1,6 @@
+f807559a4175f5ff49102ad8e11f689da744beefe11d772f4afa331fcd146f0c  ./kubekey-artifact.tgz
+e954a0136da891e6f45815dc3fbcd0099654e9609136e1d55e0b0a1f78e1ce3f  ./manifests.yaml
+34144de7f12756aa4b9dc42a907fd95b0c5eb82a63566a650ca10c8abe7a26a0  ./tools/amd64/nerdctl-2.2.1-linux-amd64.tar.gz
+6cdc692f929100feb08aa8de584d02f7bcc30ec7d88bc2adc2054d782db57c64  ./tools/amd64/oras_1.3.0_linux_amd64.tar.gz
+abc83c9ac3d843c3442eedfb61c6456b8b59b1e4cd69f69598ca1582acc7c094  ./tools/arm64/nerdctl-2.2.1-linux-arm64.tar.gz
+7649738b48fde10542bcc8b0e9b460ba83936c75fb5be01ee6d4443764a14352  ./tools/arm64/oras_1.3.0_linux_arm64.tar.gz

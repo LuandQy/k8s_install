@@ -1,0 +1,21 @@
+# Rendered by deploy.sh; one template covers all deployment topologies.
+apiVersion: kubekey.kubesphere.io/v1
+kind: Inventory
+metadata:
+  name: ${CLUSTER_NAME}
+spec:
+  hosts:
+${HOSTS_YAML}
+  groups:
+    k8s_cluster:
+      groups: [kube_control_plane, kube_worker]
+    kube_control_plane:
+      hosts: ${CONTROL_PLANES_YAML}
+    kube_worker:
+      hosts: ${WORKERS_YAML}
+    etcd:
+      hosts: ${ETCD_YAML}
+    image_registry:
+      hosts: ${REGISTRIES_YAML}
+    nfs:
+      hosts: ${NFS_NODES_YAML}

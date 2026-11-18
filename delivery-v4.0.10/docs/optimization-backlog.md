@@ -1,0 +1,28 @@
+# 后续优化点（未实施，按优先级）
+
+本页记录本副本已经识别、但未在本次改动中实施的事项。它们不改变当前交付的验收边界，只作为下一轮开发输入。
+
+| 优先级 | 事项 | 现状与影响 | 建议做法 |
+| --- | --- | --- | --- |
+| P1 | 制品与 v4.0.10 的现场复核（已决定不重制） | 制品由 v4.0.9 导出、引擎为 v4.0.10；#3290 的 ISO 修复只在新制 ISO 中生效 | 首轮 deps/images-import 验收重点观察缺包与清单差异；确有问题再按 [KubeKey v4.0.10 评估](kubekey-4.0.10.md) 用 v4.0.10 重制 |
+| P0 | 把密码与日志纳入凭据管理 | 表单密码仅在页面内存；任务日志不脱敏且只保留 4 MiB，无轮转 | 接入系统密钥环/一次性凭据文件；任务日志目录加轮转、保留期与访问审计 |
+| P1 | Web 执行器支持维护操作 | 只允许新环境首装，`resume/reset/redeploy/扩容` 必须回 CLI | 为每个维护操作增加独立的预览、确认串与幂等键；仍保持单任务与阶段边界停止 |
+| P1 | HA Harbor 的 Web 执行 | 页面已开放配置/校验/只读计划，提交执行明确拒绝；尚未实机验证 VIP、token 共享与 VRID | 先用 CLI 完成 HA 实机验收，再把 `ha-harbor` 纳入执行计划与确认模板 |
+| P1 | Web 首装占用按集群名而非目标节点 | 任务 `failed`/`stopped` 后可换集群名对同一批节点再次首装；当前仅靠文档提醒 | 把占用绑定到节点身份集合，或在存在非 `succeeded` 任务时要求管理员显式解除 |
+| P2 | 日志结构化与级别下沉 | 前端按行分类 Info/Warn/Error/Debug；CLI 用文本前缀 | CLI 输出 JSON Lines（level/stage/node/ts），执行器按级别落盘，前端只做展示 |
+| P2 | 配置差异视图增强 | 已展示“相对默认值”的字段差异 | 增加仅看变更、按分组筛选、复制差异清单到工单 |
+| P2 | 制品清单断言前移 | `verify_artifact` 已 fail-closed | 在 `render`/`plan` 阶段也检查版本模板可解析，提前暴露“换版本后模板不匹配” |
+| P2 | 测试进入 CI | `tests/` 目前只在本机跑 | Linux + Bash 5 + Python 3.8/3.12 矩阵；补 CLI 集成（render/plan/config-check/artifact verify）与 HTTP 契约 |
+| P2 | 扩容后的 workflow 快照未含新节点 | `scale-worker` 更新回执与 identity，但 `${STATE_DIR}.workflow/effective.env` 仍是旧 `NODES`；后续 `cluster-verify` 只覆盖旧节点 | 扩容完成后重建快照，或增加“新增节点”验收入口 |
+| P2 | Web 的 `HARBOR_KEY` 私钥权限未强制 | 只拒绝组/其他可写，0644 私钥仍被接受；SSH 私钥要求 0600 | 与 SSH 私钥一致，要求 0600/0400 并给出明确错误 |
+| P2 | Web `binding.json` 损坏时幂等重放不可查询 | 同一 `request_id` 重试会返回“结果未确认”，即使 `job.json` 完好 | 把绑定并入任务记录，或损坏时返回明确的可核查状态 |
+| P3 | Harbor 导入后验证超时为 0 | HA 复制/同步较慢时一次失败即终止，没有重试窗口 | 允许受控重试与可配置超时，结果写入证据 |
+| P3 | 旧版 resume 的 `images_ready` 可能缺少镜像证据 | 仅旧版路径可达；`COMPONENTS=all` 会直接置 true | 由镜像验收记录推导，或补充证据后才置位 |
+| P3 | NFS 前置检查未在 deps 阶段执行 | `nfs-server.sh` 到 `services-init` 才检查 `exportfs` | 前移到 `deps`/`prepare`，提前暴露缺包 |
+| P3 | 跟踪上游新版本 | 版本表手工维护 | 定时抓取 Release 与 `builtin/core` 差异，生成“模板侧可合并/构建侧需重制”的报告 |
+| P3 | 删除或真正实现未使用字段 | `rise.external_cert/external_key` 无消费者；BYO 根 CA 已由 `PKI_ROOT_*` 独立支持 | 从模板中移除这两个字段，或明确改为 Harbor 叶子证书入口 |
+
+## 原则
+
+- 任何改动都必须保持三条边界：状态/回执指纹不可绕过；阶段失败不发布成功；日志与凭据按敏感材料保管。
+- 新增 Web 能力时，仍复用 CLI 的最终校验与执行路径，不在前端复制规则。

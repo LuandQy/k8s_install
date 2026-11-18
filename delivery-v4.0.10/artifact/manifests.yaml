@@ -1,0 +1,159 @@
+
+download:
+  kubernetes:
+    kube_version: ["v1.36.4","v1.35.8","v1.34.11","v1.33.13"]
+    helm_version: ["v3.18.5"]
+  etcd:
+    etcd_version: ["v3.5.24","v3.6.5","v3.6.6","v3.6.8"]
+  image_registry:
+    type: ["harbor"]
+    # ========== image registry ==========
+    # keepalived image tag. Used for load balancing when there are multiple image registry nodes.
+    keepalived_version: ["2.3.4"]
+# docker-compose binary
+    dockercompose_version: ["v2.20.3"]
+    # ========== image registry: harbor ==========
+    # harbor image tag
+    harbor_version: ["v2.10.2"]
+    # ========== image registry: docker-registry ==========
+    # docker-registry image tag
+    docker_registry_version: []
+  cri:
+    # Container runtime type.
+    container_manager: ["containerd","docker"]
+    # ========== cri ==========
+    # crictl binary
+    crictl_version: ["v1.33.0","v1.34.0","v1.35.0","v1.36.0"]
+    # ========== cri: docker ==========
+    # docker binary
+    docker_version: ["29.6.2","29.7.2"]
+    # cridockerd. Required when kube_version is greater than 1.24
+    cridockerd_version: ["v0.3.21"]
+    # ========== cri: containerd ==========
+    # containerd binary
+    containerd_version: ["v2.2.6","v2.3.3"]
+    # runc binary
+    runc_version: ["v1.3.6","v1.4.3"]
+  cni:
+    type: ["calico"]
+    # ========== cni ==========
+    # cni_plugins binary
+    cni_plugins_version: ["v1.9.1"]
+    # ========== cni: calico ==========
+    # calicoctl binary
+    calico_version: ["v3.31.7","v3.32.2"]
+    # ========== cni: cilium ==========
+    # cilium helm
+    cilium_version: []
+    # ========== cni: flannel ==========
+    # flannel helm
+    flannel_version: []   
+    # ========== cni: kubeovn ==========
+    # kubeovn helm
+    kubeovn_version: []
+    # ========== cni: muti-cni ==========
+    multi_cni: null
+    # ========== cni: multi-cni - multus ==========
+    # Image tag for Multus (configure if needed).
+    multus:
+      image:  
+        repository: "k8snetworkplumbingwg/multus-cni"
+        tag: ["v4.2.4"]
+    # ========== cni: multi-cni - spiderpool ==========
+    spiderpool_version: []
+  storage_class:
+    # Local storage class settings.
+    local:
+      enabled: true   # Enable the local storage class.
+    # openebs/dynamic-localpv-provisioner helm chart version.
+    localpv_provisioner_version: ["4.4.0"]
+    nfs:
+      enabled: true   # Enable the nfs storage class.
+    # nfs-provisioner Helm chart version.
+    nfs_provisioner_version: ["4.0.18"]
+  iso: ["ubuntu-24.04-debs","ubuntu-22.04-debs","kylin-v10SP3-2403-rpms"]
+  images:
+    manifests:
+      # kubernetes
+      ## kubernetes/high-availability
+      - docker.io/library/haproxy:2.9.6-alpine
+      - docker.io/plndr/kube-vip:v0.7.2
+      ## kubernetes/v1.36.4
+      - registry.k8s.io/kube-apiserver:v1.36.4
+      - registry.k8s.io/kube-controller-manager:v1.36.4
+      - registry.k8s.io/kube-proxy:v1.36.4
+      - registry.k8s.io/kube-scheduler:v1.36.4
+      - registry.k8s.io/pause:3.10.2
+      ## kubernetes/dns v1.36
+      - registry.k8s.io/coredns/coredns:v1.14.2
+      - registry.k8s.io/dns/k8s-dns-node-cache:1.26.7
+      ## kubernetes/v1.35.8
+      - registry.k8s.io/kube-apiserver:v1.35.8
+      - registry.k8s.io/kube-controller-manager:v1.35.8
+      - registry.k8s.io/kube-proxy:v1.35.8
+      - registry.k8s.io/kube-scheduler:v1.35.8
+      - registry.k8s.io/pause:3.10.1
+      ## kubernetes/dns v1.35
+      - registry.k8s.io/coredns/coredns:v1.13.1
+      - registry.k8s.io/dns/k8s-dns-node-cache:1.26.4
+      ## kubernetes/v1.34.11
+      - registry.k8s.io/kube-apiserver:v1.34.11
+      - registry.k8s.io/kube-controller-manager:v1.34.11
+      - registry.k8s.io/kube-proxy:v1.34.11
+      - registry.k8s.io/kube-scheduler:v1.34.11
+      - registry.k8s.io/pause:3.10.1
+      ## kubernetes/dns v1.34
+      - registry.k8s.io/coredns/coredns:v1.12.1
+      - registry.k8s.io/dns/k8s-dns-node-cache:1.26.4
+      ## kubernetes/v1.33.13
+      - registry.k8s.io/kube-apiserver:v1.33.13
+      - registry.k8s.io/kube-controller-manager:v1.33.13
+      - registry.k8s.io/kube-proxy:v1.33.13
+      - registry.k8s.io/kube-scheduler:v1.33.13
+      - registry.k8s.io/pause:3.10
+      ## kubernetes/dns v1.33
+      - registry.k8s.io/coredns/coredns:v1.12.0
+      - registry.k8s.io/dns/k8s-dns-node-cache:1.25.0
+      ## kubernetes/etcd
+      - registry.k8s.io/etcd:v3.5.24
+      - registry.k8s.io/etcd:v3.6.5
+      - registry.k8s.io/etcd:v3.6.6
+      - registry.k8s.io/etcd:v3.6.8
+      # StorageClass
+      ## StorageClass/local-4.4.0
+      - docker.io/openebs/linux-utils:4.3.0
+      - docker.io/openebs/provisioner-localpv:4.4.0
+      ## StorageClass/nfs-4.0.18
+      - registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+      # CNI
+      ##  CNI/calico-v3.31.7
+      - quay.io/tigera/operator:v1.40.15
+      - docker.io/calico/node:v3.31.7
+      - docker.io/calico/cni:v3.31.7
+      - docker.io/calico/kube-controllers:v3.31.7
+      - docker.io/calico/typha:v3.31.7
+      - docker.io/calico/ctl:v3.31.7
+      - docker.io/calico/apiserver:v3.31.7
+      - docker.io/calico/csi:v3.31.7
+      - docker.io/calico/node-driver-registrar:v3.31.7
+      - docker.io/calico/pod2daemon-flexvol:v3.31.7
+      - docker.io/calico/key-cert-provisioner:v3.31.7
+      - docker.io/calico/goldmane:v3.31.7
+      - docker.io/calico/whisker:v3.31.7
+      - docker.io/calico/whisker-backend:v3.31.7
+      ##  CNI/calico-v3.32.2
+      - quay.io/tigera/operator:v1.42.6
+      - docker.io/calico/node:v3.32.2
+      - docker.io/calico/cni:v3.32.2
+      - docker.io/calico/kube-controllers:v3.32.2
+      - docker.io/calico/typha:v3.32.2
+      - docker.io/calico/ctl:v3.32.2
+      - docker.io/calico/apiserver:v3.32.2
+      - docker.io/calico/csi:v3.32.2
+      - docker.io/calico/node-driver-registrar:v3.32.2
+      - docker.io/calico/pod2daemon-flexvol:v3.32.2
+      - docker.io/calico/key-cert-provisioner:v3.32.2
+      - docker.io/calico/goldmane:v3.32.2
+      - docker.io/calico/whisker:v3.32.2
+      - docker.io/calico/whisker-backend:v3.32.2
+      # Multi-CNI

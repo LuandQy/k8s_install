@@ -1,0 +1,91 @@
+{{- $calico := .cni.calico -}}
+{{- $methods := list "firstFound" "kubernetes" "interface" "skipInterface" "canReach" "cidrs" -}}
+{{- $custom := $calico.values | default "{}" | fromYaml -}}
+{{- if not (kindIs "map" $custom) -}}{{ fail "Calico values must be a YAML mapping" }}{{- end -}}
+{{- if hasKey $custom "Error" -}}{{ fail "Calico custom values contain invalid YAML" }}{{- end -}}
+{{- $installation := get $custom "installation" | default dict -}}
+{{- if not (kindIs "map" $installation) -}}{{ fail "Calico values.installation must be a mapping" }}{{- end -}}
+{{- $network := get $installation "calicoNetwork" | default dict -}}
+{{- if not (kindIs "map" $network) -}}{{ fail "Calico values.installation.calicoNetwork must be a mapping" }}{{- end -}}
+{{- $hasCustom := hasKey $network "nodeAddressAutodetectionV4" -}}
+{{- $native := get $calico "node_address_autodetection_v4" -}}
+{{- $hasNative := not (kindIs "invalid" $native) -}}
+{{- /* get returns an empty string for an absent key. */ -}}
+{{- if not (hasKey $calico "node_address_autodetection_v4") -}}{{- $hasNative = false -}}{{- end -}}
+{{- $strategy := dict "kubernetes" "NodeInternalIP" -}}
+{{- $releaseQuery := .calico_release_query | default dict -}}
+{{- if $releaseQuery.error | default "" -}}{{ fail "Calico Helm release inspection failed; refusing to assume a new installation" }}{{- end -}}
+{{- $releases := $releaseQuery.stdout | default "[]" | fromJson -}}
+{{- if not (kindIs "slice" $releases) -}}{{ fail "Calico Helm release query did not return a JSON list" }}{{- end -}}
+{{- if gt (len $releases) 1 -}}{{ fail "Calico Helm release query returned more than one release" }}{{- end -}}
+{{- if $releases -}}
+  {{- $current := .calico_existing_installation | default dict -}}
+  {{- if $current.error | default "" -}}{{ fail "Calico Installation read failed; refusing to replace its address policy" }}{{- end -}}
+  {{- $raw := $current.stdout | default "" -}}
+  {{- if not (hasPrefix "default|" $raw) -}}
+    {{- fail "Calico existing Helm release has no readable Installation/default; refusing to replace its address policy" -}}
+  {{- end -}}
+  {{- $payload := trimPrefix "default|" $raw -}}
+  {{- if $payload -}}
+    {{- $strategy = $payload | fromJson -}}
+  {{- else -}}
+    {{- /* Omitted on an existing Installation means its original firstFound
+          behavior; preserve it until the operator explicitly selects a mode. */ -}}
+    {{- $strategy = dict "firstFound" true -}}
+  {{- end -}}
+{{- end -}}
+{{- if $hasNative -}}{{- $strategy = $native -}}{{- end -}}
+{{- if $hasCustom -}}
+  {{- $customStrategy := get $network "nodeAddressAutodetectionV4" -}}
+  {{- if and $hasNative (ne (toJson $native) (toJson $customStrategy)) -}}
+    {{- fail "Calico address detection conflicts between node_address_autodetection_v4 and custom Helm values" -}}
+  {{- end -}}
+  {{- $strategy = $customStrategy -}}
+{{- end -}}
+{{- if not (kindIs "map" $strategy) -}}{{ fail "Calico nodeAddressAutodetectionV4 must be a mapping" }}{{- end -}}
+{{- $selected := dict -}}
+{{- range $key, $value := $strategy -}}
+  {{- if not (has $key $methods) -}}{{ fail (printf "Calico nodeAddressAutodetectionV4 has unknown method %s" $key) }}{{- end -}}
+  {{- if not (kindIs "invalid" $value) -}}
+    {{- if eq $key "firstFound" -}}
+      {{- if not (kindIs "bool" $value) -}}{{ fail "Calico firstFound must be a boolean" }}{{- end -}}
+    {{- else if eq $key "cidrs" -}}
+      {{- if or (not (kindIs "slice" $value)) (empty $value) -}}{{ fail "Calico cidrs must be a nonempty list" }}{{- end -}}
+      {{- range $value -}}
+        {{- if not (kindIs "string" .) -}}{{ fail "Calico cidrs entries must be CIDR strings" }}{{- end -}}
+        {{- $cidr := splitList "/" . -}}
+        {{- if or (ne (len $cidr) 2) (not (isIP (first $cidr))) (not (regexMatch "^[0-9]+$" (last $cidr))) -}}{{ fail (printf "Calico cidrs contains invalid CIDR %s" .) }}{{- end -}}
+        {{- $max := 32 -}}{{- if contains ":" (first $cidr) -}}{{- $max = 128 -}}{{- end -}}
+        {{- if gt (atoi (last $cidr)) $max -}}{{ fail (printf "Calico cidrs contains invalid prefix %s" .) }}{{- end -}}
+      {{- end -}}
+    {{- else -}}
+      {{- if or (not (kindIs "string" $value)) (empty $value) -}}{{ fail (printf "Calico %s must be a nonempty string" $key) }}{{- end -}}
+      {{- if and (eq $key "kubernetes") (ne $value "NodeInternalIP") -}}{{ fail "Calico kubernetes address detection must use NodeInternalIP" }}{{- end -}}
+    {{- end -}}
+    {{- $_ := set $selected $key $value -}}
+  {{- end -}}
+{{- end -}}
+{{- if gt (len $selected) 1 -}}{{ fail "Calico nodeAddressAutodetectionV4 must select at most one method" }}{{- end -}}
+# Calico Helm values. On reuse, null keys delete old mutually exclusive methods.
+# Any remaining null markers are pruned by the non-nullable Installation schema;
+# only the selected method is active. A fresh install needs no deletion markers.
+tigeraOperator:
+  registry: {{ .image_registry.quayio_registry }}
+calicoctl:
+  image: {{ .image_registry.dockerio_registry }}/calico/ctl
+installation:
+  registry: {{ .image_registry.dockerio_registry }}
+  calicoNetwork:
+    bgp: Enabled
+    ipPools:
+      - name: default-ipv4-ippool
+        cidr: {{ .cni.pod_cidr }}
+        encapsulation: VXLAN
+{{- if $releases }}
+    nodeAddressAutodetectionV4:
+{{- range $methods }}
+      {{ . }}: {{ if hasKey $selected . }}{{ get $selected . | toJson }}{{ else }}null{{ end }}
+{{- end }}
+{{- else }}
+    nodeAddressAutodetectionV4: {{ $selected | toJson }}
+{{- end }}

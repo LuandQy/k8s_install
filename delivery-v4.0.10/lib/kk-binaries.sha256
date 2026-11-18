@@ -1,0 +1,7 @@
+# KubeKey 二进制发布摘要表。格式：<sha256>  <相对路径>  <KubeKey 版本>
+# 二进制只允许存放在 tools/amd64/kk 与 tools/arm64/kk；根目录不再保留 kk-amd/kk-arm。
+# 升级统一使用 ./tools/kk-fetch.sh --version <版本> --apply；离线现场不要执行该联网工具。
+a4d2d008ad0505c6c79b6ed463c4ebc4a06ec6f9540948545e2548ba6196f063  tools/amd64/kk  v4.0.9
+804eebf24b68d5df2d68e242da15167c05a269431b2129aa88369f58dc638b82  tools/arm64/kk  v4.0.9
+5e614f43554dda746b8b5cdf1f86d78f4dce6abba86211925b46900c1f7b7ffd  tools/amd64/kk  v4.0.10
+cc764c114cfc373c8248b2e1494725114fab991abf00ac59f6af16f6eb4a3599  tools/arm64/kk  v4.0.10

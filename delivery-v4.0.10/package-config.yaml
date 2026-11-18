@@ -1,0 +1,87 @@
+---
+# 使用 KubeKey v4.0.9 执行 artifact export。
+# v1.37.0 使用独立验收配置。
+apiVersion: kubekey.kubesphere.io/v1
+kind: Config
+spec:
+  zone: ""
+  work_dir: "." # 手动导出时用 --workdir 指定实际工作目录。
+  download:
+    arch:
+    - amd64
+    - arm64
+    images:
+      policy: strict
+      projectcalico/tigera-operator:
+        v3.31.7:
+        - quay.io/tigera/operator:v1.40.15
+        - docker.io/calico/node:v3.31.7
+        - docker.io/calico/cni:v3.31.7
+        - docker.io/calico/kube-controllers:v3.31.7
+        - docker.io/calico/typha:v3.31.7
+        - docker.io/calico/ctl:v3.31.7
+        - docker.io/calico/apiserver:v3.31.7
+        - docker.io/calico/csi:v3.31.7
+        - docker.io/calico/node-driver-registrar:v3.31.7
+        - docker.io/calico/pod2daemon-flexvol:v3.31.7
+        - docker.io/calico/key-cert-provisioner:v3.31.7
+        - docker.io/calico/goldmane:v3.31.7
+        - docker.io/calico/whisker:v3.31.7
+        - docker.io/calico/whisker-backend:v3.31.7
+        v3.32.2:
+        - quay.io/tigera/operator:v1.42.6
+        - docker.io/calico/node:v3.32.2
+        - docker.io/calico/cni:v3.32.2
+        - docker.io/calico/kube-controllers:v3.32.2
+        - docker.io/calico/typha:v3.32.2
+        - docker.io/calico/ctl:v3.32.2
+        - docker.io/calico/apiserver:v3.32.2
+        - docker.io/calico/csi:v3.32.2
+        - docker.io/calico/node-driver-registrar:v3.32.2
+        - docker.io/calico/pod2daemon-flexvol:v3.32.2
+        - docker.io/calico/key-cert-provisioner:v3.32.2
+        - docker.io/calico/goldmane:v3.32.2
+        - docker.io/calico/whisker:v3.32.2
+        - docker.io/calico/whisker-backend:v3.32.2
+    # 显式列出交付版本，导出后按版本和架构核对制品。
+    kubernetes:
+      kube_version:
+      - v1.36.4
+      - v1.35.8
+      - v1.34.11
+      - v1.33.13
+      helm_version: ["v3.18.5"]
+    etcd:
+      etcd_version: ["v3.5.24", "v3.6.5", "v3.6.6", "v3.6.8"]
+    cni:
+      cni_plugins_version: ["v1.9.1"]
+      calico_version: ["v3.31.7", "v3.32.2"]
+      type:
+      - calico
+    cri:
+      # v4.0.9 runtime pairs from the generated templates.
+      containerd_version: ["v2.2.6", "v2.3.3"]
+      runc_version: ["v1.3.6", "v1.4.3"]
+      crictl_version: ["v1.33.0", "v1.34.0", "v1.35.0", "v1.36.0"]
+      docker_version: ["29.6.2", "29.7.2"]
+      cridockerd_version: ["v0.3.21"]
+      container_manager:
+      - containerd
+      - docker
+    storage_class:
+      localpv_provisioner_version: ["4.4.0"]
+      nfs_provisioner_version: ["4.0.18"]
+      local:
+        enabled: true
+      nfs:
+        enabled: true
+    image_registry:
+      harbor_version: ["v2.10.2"]
+      dockercompose_version: ["v2.20.3"]
+      keepalived_version: ["2.3.4"]
+      type:
+      - harbor
+    iso:
+    - ubuntu-24.04-debs
+    - ubuntu-22.04-debs
+    - kylin-v10SP3-2403-rpms

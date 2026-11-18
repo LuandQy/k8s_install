@@ -1,0 +1,858 @@
+{
+  "schema_version": 1,
+  "groups": [
+    {
+      "id": "cluster",
+      "label": "集群与版本"
+    },
+    {
+      "id": "network",
+      "label": "API 与集群网络"
+    },
+    {
+      "id": "registry",
+      "label": "仓库与公开证书路径"
+    },
+    {
+      "id": "storage",
+      "label": "存储与 NFS"
+    },
+    {
+      "id": "artifact",
+      "label": "离线制品"
+    },
+    {
+      "id": "access",
+      "label": "SSH 与控制端路径"
+    },
+    {
+      "id": "time",
+      "label": "时间同步"
+    },
+    {
+      "id": "advanced",
+      "label": "高级参数"
+    }
+  ],
+  "settings": [
+    {
+      "key": "CLUSTER_NAME",
+      "label": "集群名称",
+      "group": "cluster",
+      "type": "string",
+      "default": "rise",
+      "help": "默认 rise 只是起点。新环境部署前改为自己的集群标识（小写字母开头，可含数字和连字符）；与草稿名称不同。留空 STATE_DIR 时用于项目 state/集群名。Web 不检查现场重名或回执冲突。"
+    },
+    {
+      "key": "COMPONENTS",
+      "label": "组件范围",
+      "group": "cluster",
+      "type": "string",
+      "default": "all",
+      "enum": [
+        "all",
+        "harbor",
+        "k8s"
+      ],
+      "help": "只选择计划范围；实际安装仍由管理员在 CLI 中确认。复用仓库时还需选择相应仓库模式。",
+      "option_labels": {
+        "all": "整套 Harbor 与 Kubernetes",
+        "harbor": "仅受管 Harbor",
+        "k8s": "复用仓库安装 Kubernetes"
+      },
+      "option_help": {
+        "all": "未来整套安装，包括镜像导入及集群验收；Web 不执行。",
+        "harbor": "未来仅处理仓库范围，不执行 Kubernetes 功能验收。",
+        "k8s": "未来核验已有仓库后安装 Kubernetes，不隐式安装 Harbor 或导入镜像。"
+      }
+    },
+    {
+      "key": "KUBE_VERSION",
+      "label": "Kubernetes 版本",
+      "group": "cluster",
+      "type": "string",
+      "default": "",
+      "enum": [],
+      "help": "从 configs/v*.yaml 自动发现；默认最高版本，新增版本只需增加配置与离线制品，不修改业务代码。",
+      "option_labels": {},
+      "option_help": {},
+      "version_source": "configs/v*.yaml"
+    },
+    {
+      "key": "KK_VERSION",
+      "label": "KubeKey 版本",
+      "group": "cluster",
+      "type": "string",
+      "default": "v4.0.10",
+      "enum": [
+        "v4.0.9",
+        "v4.0.10"
+      ],
+      "help": "必须与随包二进制一致；切换版本须先用 tools/kk-fetch.sh 安装并核对摘要，不能只改字段。",
+      "option_labels": {
+        "v4.0.9": "KubeKey 4.0.9（回退）",
+        "v4.0.10": "KubeKey 4.0.10（随包）"
+      },
+      "option_help": {
+        "v4.0.9": "旧版本；仅在明确决定回退并用 kk-fetch 重装二进制后选择。",
+        "v4.0.10": "随包二进制；模板已合并 v4.0.10 修复，制品仍由 v4.0.9 导出。"
+      }
+    },
+    {
+      "key": "CLUSTER_VERIFY_MODE",
+      "label": "功能验收范围",
+      "group": "cluster",
+      "type": "string",
+      "default": "cross-node",
+      "enum": [
+        "selected-node",
+        "cross-node"
+      ],
+      "help": "这里只选择未来验收范围，不创建 Pod/PVC，也不连接节点。",
+      "option_labels": {
+        "selected-node": "所选控制节点验收",
+        "cross-node": "跨节点网络验收"
+      },
+      "option_help": {
+        "selected-node": "未来仅在所选控制节点开展功能检查，不能代表完整跨节点网络。",
+        "cross-node": "未来覆盖同架构 K8s 节点间有向网络矩阵；PVC 仍仅首控制节点，不证明 HA。"
+      }
+    },
+    {
+      "key": "K8S_DOMAIN",
+      "label": "API 域名",
+      "group": "network",
+      "type": "string",
+      "default": "lb.rise.io",
+      "help": "Kubernetes API 域名；不能与外部 Harbor 域名相同。Web 不查询 DNS。"
+    },
+    {
+      "key": "ENDPOINT_TYPE",
+      "label": "API 入口类型",
+      "group": "network",
+      "type": "string",
+      "default": "kube-vip",
+      "enum": [
+        "local",
+        "kube-vip",
+        "external"
+      ],
+      "help": "这是 Kubernetes API 入口，不是下方节点的 local/ssh 连接方式。三个控制平面需 kube-vip 或外部入口。",
+      "option_labels": {
+        "local": "单控制平面入口",
+        "kube-vip": "API 虚拟 IP",
+        "external": "已有外部负载均衡"
+      },
+      "option_help": {
+        "local": "API 使用单控制平面本机入口；与节点连接方式 local/ssh 无关。",
+        "kube-vip": "填写独立 API VIP，不能与节点或 Harbor VIP 相同。",
+        "external": "填写已准备好的 API 负载均衡地址；脚本不替你搭建外部负载均衡。"
+      }
+    },
+    {
+      "key": "ENDPOINT_ADDRESS",
+      "label": "API VIP / 外部入口地址",
+      "group": "network",
+      "type": "string",
+      "default": "192.0.2.100",
+      "help": "kube-vip 或 external 模式填写 API VIP/负载均衡 IPv4；local 模式通常留空。不会分配地址或探测冲突。"
+    },
+    {
+      "key": "ENDPOINT_PORT",
+      "label": "API 入口端口",
+      "group": "network",
+      "type": "integer",
+      "default": 6443,
+      "help": "API 入口端口，通常为 6443；只记录配置，不测试连通性。"
+    },
+    {
+      "key": "POD_CIDR",
+      "label": "Pod 网段",
+      "group": "network",
+      "type": "string",
+      "default": "10.233.64.0/18",
+      "help": "Pod 网络地址/前缀，必须与 Service、节点及现场网络不重叠；现场路由需另行核对。"
+    },
+    {
+      "key": "SERVICE_CIDR",
+      "label": "Service 网段",
+      "group": "network",
+      "type": "string",
+      "default": "10.233.0.0/18",
+      "help": "Service 网络地址/前缀，必须与 Pod、节点及现场网络不重叠。"
+    },
+    {
+      "key": "REGISTRY_MODE",
+      "label": "仓库模式",
+      "group": "registry",
+      "type": "string",
+      "default": "harbor",
+      "enum": [
+        "harbor",
+        "ha-harbor",
+        "external-harbor"
+      ],
+      "help": "外部 Harbor 仅用于 k8s 范围；配置支持不代表 HA 已验收。",
+      "option_labels": {
+        "harbor": "受管单实例 Harbor",
+        "ha-harbor": "多实例 Harbor 与 VIP",
+        "external-harbor": "已有外部 Harbor"
+      },
+      "option_help": {
+        "harbor": "清单需要一个 registry 节点。",
+        "ha-harbor": "高级配置需至少两个仓库节点及独立 VIP；本交付未验证 HA，不能视为数据库和存储共享高可用。",
+        "external-harbor": "仅 k8s 范围，填写仓库 IP 与公开 CA；仓库主机不得列为受管节点。"
+      }
+    },
+    {
+      "key": "IMPORT_IMAGES",
+      "label": "计划导入镜像",
+      "group": "registry",
+      "type": "boolean",
+      "default": true,
+      "help": "声明未来流程是否导入镜像；整套 all 需要导入，复用仓库 k8s 不会因此写入外部仓库。"
+    },
+    {
+      "key": "HARBOR_ADDRESS",
+      "label": "外部 Harbor IPv4",
+      "group": "registry",
+      "type": "string",
+      "default": "",
+      "help": "仅 external-harbor 填写仓库 IPv4；外部仓库不能同时列入受管节点清单。"
+    },
+    {
+      "key": "HARBOR_DOMAIN",
+      "label": "Harbor 域名",
+      "group": "registry",
+      "type": "string",
+      "default": "harbor.rise.io",
+      "help": "Harbor 访问域名；Web 不修改 hosts 或验证域名解析。"
+    },
+    {
+      "key": "HARBOR_PORT",
+      "label": "Harbor 端口",
+      "group": "registry",
+      "type": "integer",
+      "default": 443,
+      "help": "Harbor 访问端口，HTTPS 通常为 443；不会发起连接。"
+    },
+    {
+      "key": "HARBOR_HTTP",
+      "label": "使用 HTTP 仓库",
+      "group": "registry",
+      "type": "boolean",
+      "default": false,
+      "help": "关闭表示 HTTPS。包含 K8s 功能验收的计划要求 HTTPS；外部 Harbor 也要求 HTTPS。"
+    },
+    {
+      "key": "HARBOR_VIP",
+      "label": "受管 HA Harbor VIP",
+      "group": "registry",
+      "type": "string",
+      "default": "",
+      "help": "仅 ha-harbor 配置独立 IPv4 VIP，不能与节点或 API VIP 重复；Web 不核验现场占用。"
+    },
+    {
+      "key": "HARBOR_VRRP_ID",
+      "label": "Harbor HA VRRP Router ID",
+      "group": "registry",
+      "type": "integer",
+      "default": 31,
+      "minimum": 1,
+      "maximum": 255,
+      "help": "仅 ha-harbor 的 keepalived 使用；同一二层网络内的每个 keepalived 实例必须唯一，否则 VIP 会来回切换。"
+    },
+    {
+      "key": "HARBOR_SOURCE_DIR",
+      "label": "Harbor 数据源目录",
+      "group": "registry",
+      "type": "string",
+      "default": "/var/lib/harbor/data",
+      "help": "未来执行节点上的 Harbor 数据源目录；只保存路径，不创建或迁移数据。"
+    },
+    {
+      "key": "HARBOR_CA",
+      "label": "Harbor 公开 CA 文件路径",
+      "group": "registry",
+      "type": "string",
+      "default": "",
+      "help": "执行控制端上的公开 CA 文件路径；Web 不上传或读取证书正文。外部 Harbor 必填。"
+    },
+    {
+      "key": "HARBOR_CERT",
+      "label": "Harbor 服务端证书路径",
+      "group": "registry",
+      "type": "string",
+      "default": "",
+      "help": "受管 Harbor 的证书由 KubeKey 生成（SAN 含域名与仓库节点/VIP），此字段当前不参与证书签发，仅保留兼容；不要用它期望替换 Harbor 证书。"
+    },
+    {
+      "key": "HARBOR_KEY",
+      "label": "Harbor 私钥文件路径",
+      "group": "registry",
+      "type": "string",
+      "default": "",
+      "help": "仅填写路径，不粘贴私钥正文；受管 Harbor 不使用该文件签发服务证书。需要自带 CA 时预置 WORK_DIR/pki 的根证书与私钥。"
+    },
+    {
+      "key": "LOCAL_STORAGE",
+      "label": "启用本地 PV",
+      "group": "storage",
+      "type": "boolean",
+      "default": true,
+      "help": "声明是否启用本地 PV；节点本地数据不因本字段而具备跨节点高可用。"
+    },
+    {
+      "key": "LOCAL_PATH",
+      "label": "本地 PV 目录",
+      "group": "storage",
+      "type": "string",
+      "default": "/data/local-pv",
+      "help": "未来节点上的本地 PV 目录；只记录路径，不创建、清空或检查挂载。"
+    },
+    {
+      "key": "NFS_MODE",
+      "label": "NFS 模式",
+      "group": "storage",
+      "type": "string",
+      "default": "new",
+      "enum": [
+        "none",
+        "new",
+        "existing"
+      ],
+      "help": "不使用 NFS 时保留 none；NFS 服务探测不等于 NFS PVC 或业务权限验收。",
+      "option_labels": {
+        "none": "不使用 NFS",
+        "new": "清单内节点提供 NFS",
+        "existing": "使用已有 NFS"
+      },
+      "option_help": {
+        "none": "不声明 NFS 服务或挂载；路径字段暂不生效。",
+        "new": "未来在指定节点准备服务；离线依赖和权限需要独立核验。",
+        "existing": "填写现有服务端及导出目录；Web 不挂载或检查。"
+      }
+    },
+    {
+      "key": "NFS_NODE",
+      "label": "NFS 服务端节点名",
+      "group": "storage",
+      "type": "string",
+      "default": "node1",
+      "help": "new 模式填写节点清单中的名称，不是 IP；仅声明未来服务端。"
+    },
+    {
+      "key": "NFS_SERVER",
+      "label": "外部 NFS 地址",
+      "group": "storage",
+      "type": "string",
+      "default": "",
+      "help": "existing 模式填写已有服务端 IP 或域名；Web 不测试挂载。"
+    },
+    {
+      "key": "NFS_PATH",
+      "label": "NFS 导出目录",
+      "group": "storage",
+      "type": "string",
+      "default": "/data/nfs",
+      "help": "服务端导出路径；none 时此字段闲置，启用 NFS 前须重新核对。"
+    },
+    {
+      "key": "NFS_VERSION",
+      "label": "NFS 版本",
+      "group": "storage",
+      "type": "integer",
+      "default": 4,
+      "enum": [
+        3,
+        4
+      ],
+      "help": "选择目标 NFS 协议版本；实际可用性须由后续现场验收确认。",
+      "option_labels": {
+        "3": "NFS 第 3 版",
+        "4": "NFS 第 4 版"
+      },
+      "option_help": {
+        "3": "目标服务端与客户端须支持 NFSv3；实际连通和权限需另验。",
+        "4": "目标服务端与客户端须支持 NFSv4；实际导出与挂载路径需另验。"
+      }
+    },
+    {
+      "key": "NFS_ANON_UID",
+      "label": "NFS 匿名 UID",
+      "group": "storage",
+      "type": "integer",
+      "default": 65534,
+      "help": "匿名映射 UID，不会修改实际服务端或业务文件权限。"
+    },
+    {
+      "key": "NFS_ANON_GID",
+      "label": "NFS 匿名 GID",
+      "group": "storage",
+      "type": "integer",
+      "default": 65534,
+      "help": "匿名映射 GID，需按服务端与业务权限安排核对。"
+    },
+    {
+      "key": "ARTIFACT_FILE",
+      "label": "内层离线归档路径",
+      "group": "artifact",
+      "type": "string",
+      "default": "",
+      "help": "填写执行控制端上的内层 artifact/kubekey-artifact.tgz 绝对路径，不是外层交付包。路径不可含空格、中文或 ..；不上传大归档。计划仅检查路径是否存在。"
+    },
+    {
+      "key": "ARTIFACT_SHA256",
+      "label": "离线归档 SHA256",
+      "group": "artifact",
+      "type": "string",
+      "default": "",
+      "help": "内层归档的 64 位小写 SHA256；可先留空草稿，但实际部署前须独立计算并核对随包摘要。Web 不计算或验收制品摘要。"
+    },
+    {
+      "key": "BOOTSTRAP_ARCHIVE",
+      "label": "Bootstrap 离线依赖包（可选）",
+      "group": "artifact",
+      "type": "string",
+      "default": "",
+      "help": "DEPS_MODE=bootstrap 时使用；为空则按节点 OS/arch 自动匹配 bootstrap/bootstrap-<distro>-<arch>.tar.gz。"
+    },
+    {
+      "key": "DEPS_MODE",
+      "label": "节点依赖模式",
+      "group": "artifact",
+      "type": "string",
+      "default": "iso",
+      "enum": [
+        "preinstalled",
+        "iso",
+        "online",
+        "bootstrap"
+      ],
+      "help": "保留既有默认 preinstalled；离线包准备依赖通常选 iso。使用“填入包内路径”会同时切为 iso，实际依赖完整性仍须核对。",
+      "option_labels": {
+        "preinstalled": "节点依赖已预装",
+        "iso": "使用离线制品准备依赖",
+        "online": "使用在线软件源",
+        "bootstrap": "Bootstrap 本地离线包"
+      },
+      "option_help": {
+        "preinstalled": "须管理员确认各节点依赖已经具备；选择此项本身不证明已安装。",
+        "iso": "填写随包内层 kubekey-artifact.tgz 路径与摘要，实际缺包会停止。",
+        "online": "高级模式；当前离线分步流程会阻止 online，不能用于离线首装。",
+        "bootstrap": "按节点 OS/arch 自动匹配 bootstrap/bootstrap-<distro>-<arch>.tar.gz，并使用本地 apt/yum 仓库安装节点依赖。"
+      }
+    },
+    {
+      "key": "SSH_AUTH_MODE",
+      "label": "SSH 认证方式",
+      "group": "access",
+      "type": "string",
+      "default": "bootstrap",
+      "enum": [
+        "bootstrap",
+        "key",
+        "password"
+      ],
+      "help": "配置将来部署控制端到节点的认证方式，不配置节点之间两两免密，不分发私钥。Web 只记录，不检查密钥或授权冲突、不测试免密、不接收密码。SSH 免密不等于 sudo 免密。",
+      "option_labels": {
+        "bootstrap": "配置控制端到节点免密",
+        "key": "使用已有 SSH 密钥免密",
+        "password": "持续使用 SSH 密码"
+      },
+      "option_help": {
+        "bootstrap": "正式 CLI 接入时先检查本地密钥及私公钥匹配，再尝试密钥或密码接入；全部节点身份与授权文件冲突检查通过后分发公钥。仅控制端到节点，私钥不分发；Web 未执行或检查。",
+        "key": "须提前配置目标用户的公钥授权，并填写实际控制端私钥路径；Web 不读取密钥或测试登录。",
+        "password": "节点填写密码变量名；实际密码由后续 CLI 读取。本模式不切换为密钥登录，Web 不接收密码。"
+      }
+    },
+    {
+      "key": "SSH_KEY",
+      "label": "SSH 私钥路径",
+      "group": "access",
+      "type": "string",
+      "default": "/root/.ssh/rise_deploy",
+      "help": "执行部署 CLI 的控制端上的私钥路径，不是节点路径或浏览器文件；私钥不分发。Web 不读取文件或检查私公钥匹配，管理员须提前核对，正式 CLI 接入时再验证。"
+    },
+    {
+      "key": "SSH_PARALLEL",
+      "label": "SSH 并发上限",
+      "group": "access",
+      "type": "integer",
+      "default": 5,
+      "help": "未来接入并发上限，范围 1–32；Web 不启动 SSH。"
+    },
+    {
+      "key": "WORK_DIR",
+      "label": "部署工作目录",
+      "group": "access",
+      "type": "string",
+      "default": "/data/rise-deploy",
+      "help": "未来部署控制端的工作目录，建议使用数据盘；不会检测挂载或写入目录。"
+    },
+    {
+      "key": "STATE_DIR",
+      "label": "部署状态目录",
+      "group": "access",
+      "type": "string",
+      "default": "",
+      "help": "留空时 CLI 使用项目 state/集群名；Web 草稿另存，不读写已有部署状态，也不检查名称或回执冲突。"
+    },
+    {
+      "key": "PACKAGE_WORK_DIR",
+      "label": "独立制包工作目录",
+      "group": "access",
+      "type": "string",
+      "default": "/data/kubekey-package",
+      "help": "独立制包时使用的工作目录；本工作台不制包、不创建该目录。"
+    },
+    {
+      "key": "NTP_MODE",
+      "label": "NTP 模式",
+      "group": "time",
+      "type": "string",
+      "default": "node",
+      "enum": [
+        "existing",
+        "external",
+        "node"
+      ],
+      "help": "只声明未来时间源安排；保留现场模式仍须验收 chrony。",
+      "option_labels": {
+        "existing": "保留现场时间服务",
+        "external": "使用外部时间源",
+        "node": "由集群节点提供时间源"
+      },
+      "option_help": {
+        "existing": "未来验收现有 chrony，不代表当前时间已正确同步。",
+        "external": "填写一个或多个已安排的上游时间源。",
+        "node": "填写清单内节点名；无上游时需显式允许本地时钟，不能保证 UTC 准确。"
+      }
+    },
+    {
+      "key": "NTP_NODE",
+      "label": "集群时间源节点",
+      "group": "time",
+      "type": "string",
+      "default": "node1",
+      "help": "node 模式填写节点清单中的名称；不会配置时间服务。"
+    },
+    {
+      "key": "NTP_SERVERS",
+      "label": "上游时间源",
+      "group": "time",
+      "type": "string",
+      "default": "",
+      "help": "多个上游 IPv4/域名以英文逗号分隔；不查询或连接时间源。"
+    },
+    {
+      "key": "NTP_ALLOW_LOCAL",
+      "label": "允许无上游本地时间源",
+      "group": "time",
+      "type": "boolean",
+      "default": true,
+      "help": "仅在完全离线且明确接受本地时间基准时启用；不能证明 UTC 准确。"
+    },
+    {
+      "key": "NTP_MAX_CORRECTION",
+      "label": "最大时间偏差（秒）",
+      "group": "time",
+      "type": "string",
+      "default": "0.5",
+      "help": "后续时间验收允许的最大修正量，单位秒且大于零；本期不测量时差。"
+    },
+    {
+      "key": "MIN_ROOT_FREE_GIB",
+      "label": "根盘最低可用空间 GiB",
+      "group": "advanced",
+      "type": "integer",
+      "default": 20,
+      "help": "native 策略在实际执行时检查的根盘可用空间下限（GiB）；本期不检查磁盘容量。"
+    },
+    {
+      "key": "ALLOW_ROOT_WORKDIR",
+      "label": "允许工作目录位于根盘",
+      "group": "advanced",
+      "type": "boolean",
+      "default": false,
+      "help": "未来明确接受工作目录在根盘上时启用；不取消磁盘空间或数据保护检查。"
+    },
+    {
+      "key": "VALIDATION_SCOPE",
+      "label": "配置校验范围",
+      "group": "advanced",
+      "type": "string",
+      "default": "cluster",
+      "enum": [
+        "cluster"
+      ],
+      "help": "一期只编辑完整集群草稿，不接入 worker 扩容执行。",
+      "option_labels": {
+        "cluster": "完整集群配置"
+      },
+      "option_help": {
+        "cluster": "当前 Web 仅支持完整集群草稿，不提交扩容任务。"
+      }
+    }
+  ],
+  "node_fields": [
+    {
+      "key": "name",
+      "label": "节点名称",
+      "type": "string",
+      "default": "",
+      "help": "小写字母开头，可含数字和连字符；节点名需唯一。此处仅编辑清单，不核验真实主机名。"
+    },
+    {
+      "key": "address",
+      "label": "连接 IPv4",
+      "type": "string",
+      "default": "",
+      "help": "控制端将来连接此节点使用的 IPv4；默认地址属于文档示例网段，部署前必须替换。"
+    },
+    {
+      "key": "internal_address",
+      "label": "内部 IPv4",
+      "type": "string",
+      "default": "",
+      "help": "节点内部通信用 IPv4，通常与连接地址相同；此处不会自动识别网卡或探测地址。"
+    },
+    {
+      "key": "user",
+      "label": "SSH 用户",
+      "type": "string",
+      "default": "root",
+      "help": "远端 SSH 登录用户。普通用户在实际部署时须具备 sudo -n 权限；SSH 免密并不代表 sudo 免密。本机模式不使用此字段登录。"
+    },
+    {
+      "key": "port",
+      "label": "SSH 端口",
+      "type": "integer",
+      "default": 22,
+      "help": "远端 SSH 端口，通常为 22；本机模式不通过此端口连接。"
+    },
+    {
+      "key": "arch",
+      "label": "架构",
+      "type": "string",
+      "default": "amd64",
+      "enum": [
+        "amd64",
+        "arm64"
+      ],
+      "help": "按实际目标节点填写，Web 不探测 CPU；混合架构不能据此认为跨节点验收受支持。",
+      "option_labels": {
+        "amd64": "x86-64 架构",
+        "arm64": "64 位 ARM 架构"
+      },
+      "option_help": {
+        "amd64": "适用于 x86-64/AMD64 节点，须按实际 CPU 选择。",
+        "arm64": "适用于 AArch64/ARM64 节点，须使用匹配制品与依赖。"
+      }
+    },
+    {
+      "key": "os",
+      "label": "系统依赖类型",
+      "type": "string",
+      "default": "ubuntu-24.04-debs",
+      "enum": [
+        "ubuntu-22.04-debs",
+        "ubuntu-24.04-debs",
+        "kylin-v10SP3-2403-rpms"
+      ],
+      "help": "须与节点实际系统及离线依赖包匹配；Web 不读取目标系统信息。",
+      "option_labels": {
+        "ubuntu-22.04-debs": "Ubuntu 22.04",
+        "ubuntu-24.04-debs": "Ubuntu 24.04",
+        "kylin-v10SP3-2403-rpms": "Kylin V10 SP3 2403"
+      },
+      "option_help": {
+        "ubuntu-22.04-debs": "需匹配 Ubuntu 22.04 离线 DEB 依赖；不由 Web 自动识别。",
+        "ubuntu-24.04-debs": "需匹配 Ubuntu 24.04 离线 DEB 依赖；历史三节点验证为该系统。",
+        "kylin-v10SP3-2403-rpms": "须严格核对 SP3-2403 及匹配 RPM 制品，不能把所有 V10 视为相同。"
+      }
+    },
+    {
+      "key": "roles",
+      "label": "节点角色",
+      "type": "array",
+      "default": [
+        "worker"
+      ],
+      "enum": [
+        "control_plane",
+        "worker",
+        "etcd",
+        "registry",
+        "nfs",
+        "ntp"
+      ],
+      "help": "角色可多选。最终校验会为控制平面补齐 etcd；NFS/NTP 服务仍须配置对应模式和节点名。",
+      "option_labels": {
+        "control_plane": "控制平面",
+        "worker": "业务工作节点",
+        "etcd": "etcd 数据节点",
+        "registry": "受管 Harbor 仓库",
+        "nfs": "NFS 服务节点",
+        "ntp": "NTP 时间源节点"
+      },
+      "option_help": {
+        "control_plane": "管理 Kubernetes API；最终配置校验自动补齐同机 etcd。",
+        "worker": "承载普通业务；控制平面需显式包含此角色才承载普通业务。",
+        "etcd": "必须与控制平面同机，通常由最终校验自动补齐。",
+        "registry": "受管仓库节点角色；外部 Harbor 主机不得列入受管清单。",
+        "nfs": "仅角色声明，仍需核对 NFS_MODE 与 NFS_NODE。",
+        "ntp": "仅角色声明，仍需核对 NTP_MODE 与 NTP_NODE。"
+      }
+    },
+    {
+      "key": "connection",
+      "label": "连接方式",
+      "type": "string",
+      "default": "ssh",
+      "enum": [
+        "local",
+        "ssh"
+      ],
+      "help": "本机指将来运行部署 CLI 的控制端，不是“免密 SSH”。最多一个 local；Web 不判断地址是否属于本机，也不连接节点。",
+      "option_labels": {
+        "local": "本机执行",
+        "ssh": "远端 SSH 连接"
+      },
+      "option_help": {
+        "local": "将来由运行部署 CLI 的控制端直接执行，不使用 SSH 登录；最多一个 local，Web 不验证是否本机。",
+        "ssh": "将来通过节点地址、用户、端口和全局 SSH 认证模式连接；不等于已配置免密。"
+      }
+    },
+    {
+      "key": "data_path",
+      "label": "节点数据目录",
+      "type": "string",
+      "default": "/data",
+      "help": "未来节点的数据根目录；必须按节点存储安排填写，不会创建目录、选择磁盘或核验挂载。"
+    },
+    {
+      "key": "data_mode",
+      "label": "数据策略",
+      "type": "string",
+      "default": "native",
+      "enum": [
+        "native",
+        "existing",
+        "auto",
+        "format"
+      ],
+      "help": "本期只编辑配置与计划。auto/format 不授权格式化，后续 CLI 的人工确认和存储保护仍保留。",
+      "option_labels": {
+        "native": "根盘/现有文件系统原生目录",
+        "existing": "复用已挂载数据盘",
+        "auto": "CLI 中人工选择磁盘",
+        "format": "明确指定整盘格式化"
+      },
+      "option_help": {
+        "native": "不分区、不格式化、不建立数据软链接；实际执行仍检查容量和已有数据。",
+        "existing": "实际执行须核验独立挂载、fstab 与已有数据，不能只填路径当作挂载完成。",
+        "auto": "未来初始化时在终端选择设备；Web 不枚举磁盘或确认格式化。",
+        "format": "高风险高级配置，必须在实际 CLI 中另行确认；本期保存该值不授权格式化。"
+      }
+    },
+    {
+      "key": "device",
+      "label": "数据设备",
+      "type": "string",
+      "default": "",
+      "help": "通常留空；format 高级配置才需显式指定整盘设备。Web 不枚举、读取或操作设备。"
+    },
+    {
+      "key": "password_env",
+      "label": "SSH 密码变量名",
+      "type": "string",
+      "default": "",
+      "help": "只写变量名，例如 NODE1_PASSWORD；持续密码模式需要它。实际密码在后续 CLI 隐藏输入或受控环境提供，不写入 Web 草稿。"
+    }
+  ],
+  "default_nodes": [
+    {
+      "name": "node1",
+      "address": "192.0.2.10",
+      "internal_address": "192.0.2.10",
+      "user": "root",
+      "port": 22,
+      "arch": "amd64",
+      "os": "ubuntu-24.04-debs",
+      "roles": [
+        "control_plane",
+        "worker",
+        "etcd",
+        "registry"
+      ],
+      "connection": "ssh",
+      "data_path": "/data",
+      "data_mode": "native",
+      "device": "",
+      "password_env": ""
+    },
+    {
+      "name": "node2",
+      "address": "192.0.2.11",
+      "internal_address": "192.0.2.11",
+      "user": "root",
+      "port": 22,
+      "arch": "amd64",
+      "os": "ubuntu-24.04-debs",
+      "roles": [
+        "control_plane",
+        "worker",
+        "etcd"
+      ],
+      "connection": "ssh",
+      "data_path": "/data",
+      "data_mode": "native",
+      "device": "",
+      "password_env": ""
+    },
+    {
+      "name": "node3",
+      "address": "192.0.2.12",
+      "internal_address": "192.0.2.12",
+      "user": "root",
+      "port": 22,
+      "arch": "amd64",
+      "os": "ubuntu-24.04-debs",
+      "roles": [
+        "control_plane",
+        "worker",
+        "etcd"
+      ],
+      "connection": "ssh",
+      "data_path": "/data",
+      "data_mode": "native",
+      "device": "",
+      "password_env": ""
+    }
+  ],
+  "credentials": {
+    "harbor": {
+      "key": "harbor",
+      "label": "Harbor admin 密码",
+      "required": true,
+      "min_length": 12,
+      "max_length": 128,
+      "pattern": "^[A-Za-z0-9.!_@%+=:-]{12,128}$",
+      "help": "12–128 位，只允许字母、数字及 .!_@%+=:-。仅保存在当前页面内存，不写入草稿、导出文件或任务元数据。"
+    },
+    "node": {
+      "key_prefix": "node:",
+      "label_template": "{name} SSH 密码",
+      "modes": [
+        "password",
+        "bootstrap"
+      ],
+      "required_modes": [
+        "password"
+      ],
+      "help": "SSH_AUTH_MODE=password 时每个 SSH 节点必填；bootstrap 可留空，接入阶段会再次隐藏输入。仅保存在当前页面内存。"
+    },
+    "export_include_passwords": false
+  }
+}

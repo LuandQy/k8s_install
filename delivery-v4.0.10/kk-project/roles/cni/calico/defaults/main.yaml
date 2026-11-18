@@ -1,0 +1,9 @@
+cni:
+  calico:
+    # null preserves an existing release's applied strategy. A new installation
+    # defaults to {kubernetes: NodeInternalIP}, avoiding TUN/bridge autodetection.
+    # Set one explicit map (e.g. {interface: "^ens.*"}) to change the strategy;
+    # {} deliberately disables autodetection. Do not also choose a different
+    # strategy in values.installation.calicoNetwork.nodeAddressAutodetectionV4.
+    node_address_autodetection_v4: null
+    values: |

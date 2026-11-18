@@ -1,0 +1,25 @@
+---
+- name: ImageRegistry | Push images package to image registry
+  tags: ["push"]
+  run_once: true
+  retries: 3
+  image:
+    platform: >
+      {{- $platform := list }}
+      {{- range .rise.image_arches }}
+        {{- $platform = append $platform (printf "linux/%s" .) }}
+      {{- end }}
+      {{- $platform | toJson }}
+    policy: "{{ .download.images.policy }}"
+    auths: >
+      {{- $auths := list }}
+      {{- $auths = append $auths .image_registry.auth }}
+      {{- $auths | toJson }}
+    manifests: "{{ .rise.image_manifests | toJson }}"
+    src: "local://{{ .binary_dir }}/images/"
+    dest: >-
+      {{- if and (eq .module.image.reference.registry "registry.k8s.io") (.module.image.reference.repository | contains "/" | not) -}}
+      oci://{{ .image_registry.auth.registry }}/kubernetes/{{ .module.image.reference.repository }}:{{ .module.image.reference.reference }}
+      {{- else -}}
+      oci://{{ .image_registry.auth.registry }}/{{ .module.image.reference.repository }}:{{ .module.image.reference.reference }}
+      {{- end -}}

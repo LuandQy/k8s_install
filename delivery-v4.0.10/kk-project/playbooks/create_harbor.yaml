@@ -1,0 +1,36 @@
+---
+- hosts:
+    - image_registry
+  gather_facts: true
+  roles:
+    - native/root
+# Load default variables and perform prechecks on all hosts
+- hosts:
+    - image_registry
+  gather_facts: true
+  roles:
+    - defaults
+    - precheck/image-registry
+
+
+# Download all required software and generate certificates on the localhost
+- hosts:
+    - localhost
+  gather_facts: true
+  roles:
+    # Role defaults belong to each inventory host, including the controller.
+    - role: defaults
+    - role: certs/init
+    - role: download
+
+# Initialize all nodes and install necessary software packages
+- hosts:
+    - image_registry
+  tags: ["always"]
+  roles:
+    - role: native/init
+    - role: native/dns
+    - role: cri/docker
+    - role: image-registry
+
+# Projects and image upload are explicit controller-only stages.

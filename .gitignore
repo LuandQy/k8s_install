@@ -1,0 +1,24 @@
+# OS & Python bytecode
+.DS_Store
+._*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Large offline delivery archives & external binaries (covered by SHA256SUMS)
+/*.tar.gz
+/*.tar.gz.sha256
+delivery-v4.0.10/artifact/*.tgz
+delivery-v4.0.10/artifact/tools/*/*.tar.gz
+delivery-v4.0.10/bootstrap/bootstrap-*.tar.gz
+delivery-v4.0.10/tools/amd64/kk
+delivery-v4.0.10/tools/arm64/kk
+delivery-v4.0.10/tools/amd64/jq
+delivery-v4.0.10/tools/arm64/jq
+
+# Runtime state, logs, test scratch & local generated ledgers
+delivery-v4.0.10/runs/
+delivery-v4.0.10/state/
+delivery-v4.0.10/.test-tmp/
+/*.xlsx
+/.cluster_ips

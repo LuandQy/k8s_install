@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>部署工作台 · 三步向导</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/workbench-logic.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">配</div>
+    <div class="brand-copy"><h1>部署工作台</h1><p>KubeKey · 三步完成离线部署</p></div>
+    <span id="execution-mode" class="phase-tag">配置模式 · 检测执行能力</span>
+    <button id="open-help" class="button secondary compact header-help" type="button">使用说明</button>
+  </header>
+
+  <section id="connection-panel" class="connection-panel" hidden>
+    <h2>连接本地工作台</h2>
+    <p id="connection-message">请使用本机 Web 服务启动时输出的完整访问链接。</p>
+  </section>
+
+  <main id="wizard" class="wizard-shell" hidden>
+    <nav class="stepper" aria-label="部署步骤">
+      <button class="step-link active" type="button" data-step-target="1"><span>1</span>填写配置</button>
+      <button class="step-link" type="button" data-step-target="2"><span>2</span>校验与计划</button>
+      <button class="step-link" type="button" data-step-target="3"><span>3</span>执行与台账</button>
+    </nav>
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+    <section class="wizard-step" data-step="1">
+      <div class="card step-card">
+        <div class="step-title"><div><span class="eyebrow">STEP 01</span><h1>填写配置</h1></div><span id="master-count-status" class="status-chip neutral" role="status">Master：—</span></div>
+        <div class="view-toggle" role="group" aria-label="配置视图">
+          <button id="view-form" class="button quiet compact active" type="button" aria-pressed="true">表单编辑</button>
+          <button id="view-env" class="button quiet compact" type="button" aria-pressed="false">env 预览</button>
+          <span id="env-preview-status" class="small-label"></span>
+        </div>
+        <div id="config-form-view">
+        <div class="section-heading global-heading"><div><h2>全局配置与集群参数</h2><span>先完成集群级参数，再编辑节点矩阵</span></div></div>
+        <div id="basic-settings" class="settings-block"></div>
+        <div id="advanced-settings" class="advanced-host"></div>
+        <div class="toolbar preset-toolbar">
+          <button id="preset-single" class="button secondary" type="button">单机测试（1 节点 All-in-One）</button>
+          <button id="preset-ha" class="button secondary" type="button">高可用集群（3 节点 HA + Harbor）</button>
+          <button id="use-package-artifact" class="button secondary" type="button">使用包内离线归档</button>
+          <button id="export-env" class="button quiet compact" type="button">导出 .env</button>
+          <button id="import-env" class="button quiet compact" type="button">导入 .env</button>
+          <input id="import-env-file" type="file" accept=".env,text/plain" hidden>
+        </div>
+          <div class="section-heading nodes-heading"><h2>节点矩阵</h2><div class="node-heading-actions"><button id="toggle-password-visibility" class="button secondary compact" type="button" aria-pressed="false">显示密码</button><button id="add-node" class="button secondary compact" type="button">添加节点</button></div></div>
+          <p id="master-count-error" class="validation-error" hidden role="alert"></p>
+          <p id="harbor-count-error" class="validation-error" hidden role="alert"></p>
+          <div id="nodes-list" class="nodes-list"></div>
+        </div>
+        <pre id="env-preview" class="env-preview" hidden tabindex="0" aria-label="当前表单生成的 env 预览"></pre>
+        <div class="wizard-actions"><button id="next-step-2" class="button dark" type="button">下一步：校验与计划 →</button></div>
+      </div>
+    </section>
+
+    <section class="wizard-step" data-step="2" hidden>
+      <div class="card step-card">
+        <div class="step-title"><div><span class="eyebrow">STEP 02</span><h1>校验与计划</h1></div><span id="result-status" class="status-chip neutral">尚未校验</span></div>
+        <p class="muted">只读校验复用 CLI 的配置校验/计划；不会连接节点。修改表单后需要重新校验。</p>
+        <div class="toolbar"><button id="validate-config" class="button secondary" type="button">校验配置</button><button id="show-plan" class="button dark" type="button">生成只读计划</button></div>
+        <div id="results-content" class="results-content"><p class="empty-state">填写第 1 步后点击“校验配置”。</p></div>
+        <div class="wizard-actions"><button id="back-step-1" class="button quiet" type="button">← 返回填写</button><button id="next-step-3" class="button primary" type="button">下一步：执行 →</button></div>
+      </div>
+    </section>
+
+    <section class="wizard-step" data-step="3" hidden>
+      <div class="card step-card">
+        <div class="step-title"><div><span class="eyebrow">STEP 03</span><h1>执行与台账</h1></div><button id="download-ledger" class="button secondary compact" type="button" disabled>下载环境台账</button></div>
+        <p id="execution-capability" class="muted" role="status">正在检测执行器。</p>
+        <div class="execution-actions"><button id="start-deploy-direct" class="button primary" type="button" disabled>一键全量安装（deploy.sh all）</button><span id="direct-status" class="small-label"></span></div>
+        <div class="stage-actions" role="group" aria-label="分阶段执行">
+          <button id="stage-prepare" class="button secondary" type="button" data-stage="prepare" disabled>1. 前置检查与免密</button>
+          <button id="stage-harbor" class="button secondary" type="button" data-stage="harbor" disabled>2. 部署仓库 (Harbor)</button>
+          <button id="stage-k8s" class="button secondary" type="button" data-stage="k8s" disabled>3. 部署集群 (K8s)</button>
+          <button id="stop-current-job" class="button danger" type="button" disabled>停止当前任务</button>
+        </div>
+        <p class="field-help">分阶段按钮独立提交后台任务，不弹二次确认；建议按 1→2→3 顺序执行。日志可能包含敏感信息，请按凭据材料保管。</p>
+        <div id="job-list" class="job-list"><p class="empty-state">尚未读取任务。</p></div>
+        <section id="job-detail" class="job-detail" hidden>
+          <div class="card-heading"><h3 id="job-heading">任务详情</h3><span id="job-observation" class="muted"></span></div>
+          <div id="stage-progress" class="stage-progress" aria-label="阶段状态">
+            <span class="stage-badge pending" data-stage-badge="prepare">前置检查：未开始</span>
+            <span class="stage-badge pending" data-stage-badge="harbor">Harbor：未开始</span>
+            <span class="stage-badge pending" data-stage-badge="k8s">K8s：未开始</span>
+          </div>
+          <div id="job-summary"></div>
+          <div id="job-log" class="job-log" tabindex="0" role="log" aria-label="部署日志"></div>
+        </section>
+        <div class="wizard-actions"><button id="back-step-2" class="button quiet" type="button">← 返回校验</button></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="help-dialog" aria-labelledby="help-heading">
+    <div class="dialog-heading"><h2 id="help-heading">使用说明与边界</h2><button id="close-help" class="button quiet compact" type="button">关闭</button></div>
+    <div class="help-content">
+      <h3>三步向导</h3>
+      <p>第 1 步直接编辑当前配置；第 2 步执行只读校验与计划；第 3 步直接提交后台部署任务。页面不保存草稿，持久化请导入/导出 .env；密码只保留在当前页面内存。</p>
+      <h3>节点矩阵与数据盘预览</h3>
+      <p>矩阵主行展示主机名、连接/内网 IP、连接方式、SSH 用户/端口、SSH 密码、Harbor 密码（仅勾选 Harbor 且为受管单机/HA 时显示）、角色和展开/克隆/删除。展开行显示 OS、架构、数据策略、设备和数据盘路径预览；数据策略为 native 时只声明数据根目录，不创建组件软链接、不格式化/分区；existing/auto/format 才显示 containerd、kubelet、docker、Harbor 的数据盘链接。etcd 始终保留在系统盘 /var/lib/etcd，不做软链接。启用本地存储或 NFS 时仍会创建 LOCAL_PATH/NFS_PATH（默认 /data/local-pv、/data/nfs），最终以 prepare/storage 检查为准。</p>
+      <h3>表单与 env 预览</h3>
+      <p>第 1 步可切换“表单编辑 / env 预览”。env 由服务端按当前表单生成，隐藏字段已剔除，不包含密码；它只用于核对，不授权执行，也不替代 CLI 加载。</p>
+      <h3>Harbor 模式</h3>
+      <p>仓库模式为单节点受管 Harbor、HA Harbor 或外部已有 Harbor。选择模式后高级区会展开：HA 额外要求 VIP/VRRP；外部模式不填写受管 Harbor 源目录，但仍需地址、域名和可信 CA；HTTP 模式隐藏 TLS 证书字段。HA Harbor 当前仅支持配置与只读计划，执行仍按 CLI 验收流程。</p>
+      <h3>分阶段执行</h3>
+      <p>第 3 步除全量安装外，可独立执行：前置检查（access→prepare→deps→services-init→services-verify）、Harbor（harbor-install→harbor-projects→images-import→images-verify）、K8s（k8s-install→node-images-verify→cluster-verify→ledger）。建议按 1→2→3 顺序；各按钮均直接提交后台任务，不弹二次确认。停止只在阶段边界生效，不回滚已完成操作。</p>
+      <h3>默认值</h3>
+      <p>默认拓扑为 3 控制平面 HA + kube-vip + 单 Harbor，NTP/NFS 默认由第一个控制平面提供。单机模板使用 local 连接和 All-in-One 角色。模板只是起点，IP、域名和密码必须按现场修改。</p>
+      <h3>参数显隐</h3>
+      <p>依赖模式、NTP/NFS、Harbor 启用和节点连接/认证会动态显隐；隐藏字段自动 disabled，提交前会移除，不会向后端提交无效的隐藏值。高级项默认折叠，修改后出现“已修改自定义项”。</p>
+      <h3>密码与配置</h3>
+      <p>Harbor 管理员密码内嵌在勾选 Harbor 角色的矩阵行，所有 Harbor 行共享同一个页面值；节点 SSH 密码按行独立。密码只存在于当前页面内存，刷新或关闭页面后需要重新填写，默认 .env 导出和配置对象不包含密码。sudo 提权仍要求预先配置免密，CLI 不采集 sudo 密码。</p>
+      <h3>离线归档 SHA256</h3>
+      <p>前端不再提供手动 SHA 输入/计算。后端在执行校验、预览和部署前，按归档路径读取同目录 <code>.sha256</code>，否则读取 <code>artifact/SHA256SUMS</code>。实际部署仍由 CLI 校验归档字节；外部路径请使用 CLI <code>artifact-sha256 --file</code>。</p>
+      <h3>执行器</h3>
+      <p>第 3 步需要管理员启动并已连接执行器。点击“一键开始安装”会校验配置、生成计划、提交 deploy.sh all，不显示二次确认弹窗；日志和台账来自执行器。<strong>日志不做脱敏</strong>，可能包含密码和私钥路径。</p>
+      <h3>CLI 对齐</h3>
+      <p>按钮和导出的 env 使用相同字段：DEPS_MODE、ARTIFACT_FILE/SHA256、NTP_*、NFS_*、COMPONENTS、SSH_AUTH_MODE。CLI 仍可用 <code>./deploy.sh cli --step &lt;stage&gt;</code> 接管。</p>
+      <h3>安全与故障</h3>
+      <p>这不是多用户远程平台。已有集群、reset、扩容和故障恢复使用 CLI 原流程。执行失败时保留当前配置、任务、日志和台账，不要删除回执或重复提交。</p>
+    </div>
+    <div class="dialog-actions"><button id="close-help-bottom" class="button primary" type="button">知道了</button></div>
+  </dialog>
+</body>
+</html>

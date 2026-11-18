@@ -1,0 +1,37 @@
+---
+# Existing hosts supply facts only; only rise_new_workers receive node changes.
+- hosts: [rise_new_workers]
+  gather_facts: true
+  roles: [native/root]
+- hosts: [all]
+  gather_facts: true
+  roles: [defaults]
+- hosts: [rise_new_workers]
+  roles: [precheck]
+- hosts: [localhost]
+  roles:
+    - download
+    # Upload required platforms (including a newly introduced architecture).
+    # Registry installation and HA configuration are deliberately absent.
+    - image-registry/push
+- hosts: [rise_new_workers]
+  roles: [native]
+- hosts: [kube_control_plane]
+  tasks:
+    - name: WorkerExpansion | Create short-lived join token on existing control plane
+      run_once: true
+      command: KUBECONFIG=/etc/kubernetes/admin.conf /usr/local/bin/kubeadm token create --ttl 30m
+      register: rise_worker_token
+    - name: WorkerExpansion | Share token with new workers only
+      run_once: true
+      add_hostvars:
+        hosts: rise_new_workers
+        vars:
+          kubeadm_token: "{{ .rise_worker_token.stdout }}"
+- hosts: [rise_new_workers]
+  roles:
+    - cri
+    - kubernetes/pre-kubernetes
+    - rise/worker-endpoints
+    - rise/verify
+    - kubernetes/join-kubernetes

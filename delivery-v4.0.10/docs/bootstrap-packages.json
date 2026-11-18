@@ -1,0 +1,346 @@
+{
+  "distribution": "Ubuntu noble",
+  "architecture": "amd64",
+  "source": "bootstrap/bootstrap-noble-amd64.tar.gz:Packages",
+  "packages": [
+    {
+      "Package": "adduser",
+      "Version": "3.137ubuntu1",
+      "Architecture": "all",
+      "Filename": "./adduser_3.137ubuntu1_all.deb"
+    },
+    {
+      "Package": "debconf",
+      "Version": "1.5.86ubuntu1",
+      "Architecture": "all",
+      "Filename": "./debconf_1.5.86ubuntu1_all.deb"
+    },
+    {
+      "Package": "gcc-14-base",
+      "Version": "14.2.0-4ubuntu2~24.04.1",
+      "Architecture": "amd64",
+      "Filename": "./gcc-14-base_14.2.0-4ubuntu2~24.04.1_amd64.deb"
+    },
+    {
+      "Package": "jq",
+      "Version": "1.7.1-3ubuntu0.24.04.2",
+      "Architecture": "amd64",
+      "Filename": "./jq_1.7.1-3ubuntu0.24.04.2_amd64.deb"
+    },
+    {
+      "Package": "libaudit-common",
+      "Version": "1:3.1.2-2.1ubuntu0.1",
+      "Architecture": "all",
+      "Filename": "./libaudit-common_1%3a3.1.2-2.1ubuntu0.1_all.deb"
+    },
+    {
+      "Package": "libaudit1",
+      "Version": "1:3.1.2-2.1ubuntu0.1",
+      "Architecture": "amd64",
+      "Filename": "./libaudit1_1%3a3.1.2-2.1ubuntu0.1_amd64.deb"
+    },
+    {
+      "Package": "libblkid1",
+      "Version": "2.39.3-9ubuntu6.6",
+      "Architecture": "amd64",
+      "Filename": "./libblkid1_2.39.3-9ubuntu6.6_amd64.deb"
+    },
+    {
+      "Package": "libbsd0",
+      "Version": "0.12.1-1build1.1",
+      "Architecture": "amd64",
+      "Filename": "./libbsd0_0.12.1-1build1.1_amd64.deb"
+    },
+    {
+      "Package": "libbz2-1.0",
+      "Version": "1.0.8-5.1ubuntu0.1",
+      "Architecture": "amd64",
+      "Filename": "./libbz2-1.0_1.0.8-5.1ubuntu0.1_amd64.deb"
+    },
+    {
+      "Package": "libc6",
+      "Version": "2.39-0ubuntu8.9",
+      "Architecture": "amd64",
+      "Filename": "./libc6_2.39-0ubuntu8.9_amd64.deb"
+    },
+    {
+      "Package": "libcap-ng0",
+      "Version": "0.8.4-2build2",
+      "Architecture": "amd64",
+      "Filename": "./libcap-ng0_0.8.4-2build2_amd64.deb"
+    },
+    {
+      "Package": "libcap2",
+      "Version": "1:2.66-5ubuntu2.4",
+      "Architecture": "amd64",
+      "Filename": "./libcap2_1%3a2.66-5ubuntu2.4_amd64.deb"
+    },
+    {
+      "Package": "libcbor0.10",
+      "Version": "0.10.2-1.2ubuntu2",
+      "Architecture": "amd64",
+      "Filename": "./libcbor0.10_0.10.2-1.2ubuntu2_amd64.deb"
+    },
+    {
+      "Package": "libcom-err2",
+      "Version": "1.47.0-2.4~exp1ubuntu4.1",
+      "Architecture": "amd64",
+      "Filename": "./libcom-err2_1.47.0-2.4~exp1ubuntu4.1_amd64.deb"
+    },
+    {
+      "Package": "libcrypt1",
+      "Version": "1:4.4.36-4build1",
+      "Architecture": "amd64",
+      "Filename": "./libcrypt1_1%3a4.4.36-4build1_amd64.deb"
+    },
+    {
+      "Package": "libdb5.3t64",
+      "Version": "5.3.28+dfsg2-7",
+      "Architecture": "amd64",
+      "Filename": "./libdb5.3t64_5.3.28+dfsg2-7_amd64.deb"
+    },
+    {
+      "Package": "libedit2",
+      "Version": "3.1-20230828-1build1",
+      "Architecture": "amd64",
+      "Filename": "./libedit2_3.1-20230828-1build1_amd64.deb"
+    },
+    {
+      "Package": "libfido2-1",
+      "Version": "1.14.0-1build3",
+      "Architecture": "amd64",
+      "Filename": "./libfido2-1_1.14.0-1build3_amd64.deb"
+    },
+    {
+      "Package": "libgcc-s1",
+      "Version": "14.2.0-4ubuntu2~24.04.1",
+      "Architecture": "amd64",
+      "Filename": "./libgcc-s1_14.2.0-4ubuntu2~24.04.1_amd64.deb"
+    },
+    {
+      "Package": "libgcrypt20",
+      "Version": "1.10.3-2ubuntu0.2",
+      "Architecture": "amd64",
+      "Filename": "./libgcrypt20_1.10.3-2ubuntu0.2_amd64.deb"
+    },
+    {
+      "Package": "libgpg-error0",
+      "Version": "1.47-3build2.1",
+      "Architecture": "amd64",
+      "Filename": "./libgpg-error0_1.47-3build2.1_amd64.deb"
+    },
+    {
+      "Package": "libgssapi-krb5-2",
+      "Version": "1.20.1-6ubuntu2.10",
+      "Architecture": "amd64",
+      "Filename": "./libgssapi-krb5-2_1.20.1-6ubuntu2.10_amd64.deb"
+    },
+    {
+      "Package": "libjq1",
+      "Version": "1.7.1-3ubuntu0.24.04.2",
+      "Architecture": "amd64",
+      "Filename": "./libjq1_1.7.1-3ubuntu0.24.04.2_amd64.deb"
+    },
+    {
+      "Package": "libk5crypto3",
+      "Version": "1.20.1-6ubuntu2.10",
+      "Architecture": "amd64",
+      "Filename": "./libk5crypto3_1.20.1-6ubuntu2.10_amd64.deb"
+    },
+    {
+      "Package": "libkeyutils1",
+      "Version": "1.6.3-3build1",
+      "Architecture": "amd64",
+      "Filename": "./libkeyutils1_1.6.3-3build1_amd64.deb"
+    },
+    {
+      "Package": "libkrb5-3",
+      "Version": "1.20.1-6ubuntu2.10",
+      "Architecture": "amd64",
+      "Filename": "./libkrb5-3_1.20.1-6ubuntu2.10_amd64.deb"
+    },
+    {
+      "Package": "libkrb5support0",
+      "Version": "1.20.1-6ubuntu2.10",
+      "Architecture": "amd64",
+      "Filename": "./libkrb5support0_1.20.1-6ubuntu2.10_amd64.deb"
+    },
+    {
+      "Package": "liblz4-1",
+      "Version": "1.9.4-1build1.1",
+      "Architecture": "amd64",
+      "Filename": "./liblz4-1_1.9.4-1build1.1_amd64.deb"
+    },
+    {
+      "Package": "liblzma5",
+      "Version": "5.6.1+really5.4.5-1ubuntu0.4",
+      "Architecture": "amd64",
+      "Filename": "./liblzma5_5.6.1+really5.4.5-1ubuntu0.4_amd64.deb"
+    },
+    {
+      "Package": "libmd0",
+      "Version": "1.1.0-2build1.1",
+      "Architecture": "amd64",
+      "Filename": "./libmd0_1.1.0-2build1.1_amd64.deb"
+    },
+    {
+      "Package": "libmount1",
+      "Version": "2.39.3-9ubuntu6.6",
+      "Architecture": "amd64",
+      "Filename": "./libmount1_2.39.3-9ubuntu6.6_amd64.deb"
+    },
+    {
+      "Package": "libonig5",
+      "Version": "6.9.9-1build1",
+      "Architecture": "amd64",
+      "Filename": "./libonig5_6.9.9-1build1_amd64.deb"
+    },
+    {
+      "Package": "libpam-modules-bin",
+      "Version": "1.5.3-5ubuntu5.7",
+      "Architecture": "amd64",
+      "Filename": "./libpam-modules-bin_1.5.3-5ubuntu5.7_amd64.deb"
+    },
+    {
+      "Package": "libpam-modules",
+      "Version": "1.5.3-5ubuntu5.7",
+      "Architecture": "amd64",
+      "Filename": "./libpam-modules_1.5.3-5ubuntu5.7_amd64.deb"
+    },
+    {
+      "Package": "libpam0g",
+      "Version": "1.5.3-5ubuntu5.7",
+      "Architecture": "amd64",
+      "Filename": "./libpam0g_1.5.3-5ubuntu5.7_amd64.deb"
+    },
+    {
+      "Package": "libpcre2-8-0",
+      "Version": "10.42-4ubuntu2.2",
+      "Architecture": "amd64",
+      "Filename": "./libpcre2-8-0_10.42-4ubuntu2.2_amd64.deb"
+    },
+    {
+      "Package": "libselinux1",
+      "Version": "3.5-2ubuntu2.1",
+      "Architecture": "amd64",
+      "Filename": "./libselinux1_3.5-2ubuntu2.1_amd64.deb"
+    },
+    {
+      "Package": "libsemanage-common",
+      "Version": "3.5-1build5",
+      "Architecture": "all",
+      "Filename": "./libsemanage-common_3.5-1build5_all.deb"
+    },
+    {
+      "Package": "libsemanage2",
+      "Version": "3.5-1build5",
+      "Architecture": "amd64",
+      "Filename": "./libsemanage2_3.5-1build5_amd64.deb"
+    },
+    {
+      "Package": "libsepol2",
+      "Version": "3.5-2build1",
+      "Architecture": "amd64",
+      "Filename": "./libsepol2_3.5-2build1_amd64.deb"
+    },
+    {
+      "Package": "libsmartcols1",
+      "Version": "2.39.3-9ubuntu6.6",
+      "Architecture": "amd64",
+      "Filename": "./libsmartcols1_2.39.3-9ubuntu6.6_amd64.deb"
+    },
+    {
+      "Package": "libssl3t64",
+      "Version": "3.0.13-0ubuntu3.16",
+      "Architecture": "amd64",
+      "Filename": "./libssl3t64_3.0.13-0ubuntu3.16_amd64.deb"
+    },
+    {
+      "Package": "libsystemd0",
+      "Version": "255.4-1ubuntu8.18",
+      "Architecture": "amd64",
+      "Filename": "./libsystemd0_255.4-1ubuntu8.18_amd64.deb"
+    },
+    {
+      "Package": "libtinfo6",
+      "Version": "6.4+20240113-1ubuntu2.2",
+      "Architecture": "amd64",
+      "Filename": "./libtinfo6_6.4+20240113-1ubuntu2.2_amd64.deb"
+    },
+    {
+      "Package": "libudev1",
+      "Version": "255.4-1ubuntu8.18",
+      "Architecture": "amd64",
+      "Filename": "./libudev1_255.4-1ubuntu8.18_amd64.deb"
+    },
+    {
+      "Package": "libuuid1",
+      "Version": "2.39.3-9ubuntu6.6",
+      "Architecture": "amd64",
+      "Filename": "./libuuid1_2.39.3-9ubuntu6.6_amd64.deb"
+    },
+    {
+      "Package": "libzstd1",
+      "Version": "1.5.5+dfsg2-2build1.1",
+      "Architecture": "amd64",
+      "Filename": "./libzstd1_1.5.5+dfsg2-2build1.1_amd64.deb"
+    },
+    {
+      "Package": "openssh-client",
+      "Version": "1:9.6p1-3ubuntu13.20",
+      "Architecture": "amd64",
+      "Filename": "./openssh-client_1%3a9.6p1-3ubuntu13.20_amd64.deb"
+    },
+    {
+      "Package": "passwd",
+      "Version": "1:4.13+dfsg1-4ubuntu3.2",
+      "Architecture": "amd64",
+      "Filename": "./passwd_1%3a4.13+dfsg1-4ubuntu3.2_amd64.deb"
+    },
+    {
+      "Package": "sshpass",
+      "Version": "1.09-1",
+      "Architecture": "amd64",
+      "Filename": "./sshpass_1.09-1_amd64.deb"
+    },
+    {
+      "Package": "util-linux",
+      "Version": "2.39.3-9ubuntu6.6",
+      "Architecture": "amd64",
+      "Filename": "./util-linux_2.39.3-9ubuntu6.6_amd64.deb"
+    },
+    {
+      "Package": "zlib1g",
+      "Version": "1:1.3.dfsg-3.1ubuntu2.3",
+      "Architecture": "amd64",
+      "Filename": "./zlib1g_1%3a1.3.dfsg-3.1ubuntu2.3_amd64.deb"
+    }
+  ],
+  "naming": "bootstrap-<distro>-<arch>.tar.gz；校验文件同名加 .sha256",
+  "variants": [
+    {
+      "distribution": "Ubuntu noble",
+      "id": "ubuntu",
+      "codename": "noble",
+      "arch": "amd64",
+      "archive": "bootstrap-noble-amd64.tar.gz",
+      "status": "bundled"
+    },
+    {
+      "distribution": "Ubuntu jammy",
+      "id": "ubuntu",
+      "codename": "jammy",
+      "arch": "arm64",
+      "archive": "bootstrap-jammy-arm64.tar.gz",
+      "status": "add-archive-and-catalog"
+    },
+    {
+      "distribution": "Kylin V10 SP3",
+      "id": "kylin",
+      "codename": "ky10",
+      "arch": "aarch64",
+      "archive": "bootstrap-ky10-aarch64.tar.gz",
+      "status": "add-archive-and-catalog"
+    }
+  ]
+}

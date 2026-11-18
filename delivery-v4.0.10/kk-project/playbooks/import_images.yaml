@@ -1,0 +1,12 @@
+---
+# Only the controller executes these roles. No native/root, CRI, certs or registry install.
+- hosts: [localhost]
+  gather_facts: true
+  pre_tasks:
+    - name: Rise | Mark controller-only image import
+      set_fact:
+        rise_image_import_only: true
+  roles:
+    - defaults
+    - download
+    - image-registry/upload

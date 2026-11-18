@@ -1,0 +1,216 @@
+# Scenario 2: Create cluster or upgrading CRI together.
+# Perform full Docker installation/upgrade (backup, install, certs).
+# cri-dockerd is handled inside the block for K8s >= v1.24.0.
+- name: Docker | Full Docker installation or upgrade
+  when:
+    - or (.kubernetes_install_LoadState.stdout | default "" | ne "loaded") (.upgrade.cri)
+  block:
+    - name: Docker | Backup Docker configuration and binaries before upgrade
+      when:
+        - .kubernetes_install_LoadState.stdout | default "" | eq "loaded"
+      command: |
+        BACKUP_DIR="/etc/kubekey/backup/docker/$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "${BACKUP_DIR}"
+        cp /etc/docker/daemon.json "${BACKUP_DIR}/" 2>/dev/null || true
+        cp /usr/local/bin/docker "${BACKUP_DIR}/" 2>/dev/null || true
+        cp /usr/local/bin/dockerd "${BACKUP_DIR}/" 2>/dev/null || true
+        cp /usr/local/bin/ctr "${BACKUP_DIR}/" 2>/dev/null || true
+        echo "✅ Docker backup saved to ${BACKUP_DIR}"
+
+# sync docker binary
+- name: Docker | Sync Docker binaries
+  block:
+    - name: Docker | Check if Docker is installed on the system
+      ignore_errors: true
+      command: docker version --format '{{ .Client.Version }}' 2>/dev/null || true
+      register: docker_install_version
+    - name: Docker | Install and configure Docker if not present or version mismatch
+      when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version)
+      block:
+        - name: Docker | Copy Docker binary archive to the remote node
+          copy:
+            src: >-
+              {{ .binary_dir }}/docker/{{ .cri.docker_version }}/{{ .binary_type }}/docker-{{ .cri.docker_version }}.tgz
+            dest: >-
+              {{ .tmp_dir }}/docker-{{ .cri.docker_version }}.tgz
+        - name: Docker | Extract Docker binaries to /usr/local/bin
+          command: |
+            tar -C /usr/local/bin/ --strip-components=1 -xvf {{ .tmp_dir }}/docker-{{ .cri.docker_version }}.tgz --wildcards 'docker/*'
+
+# sync image registry certificates
+- name: Docker | Synchronize image registry TLS certificates to the remote node
+  block:
+    - name: Docker | Copy image registry CA certificate to the remote node
+      when: .image_registry.auth.ca_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.ca_file }}
+        dest: >-
+          /etc/docker/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/ca.crt
+    - name: Docker | Copy image registry server certificate to the remote node
+      when:
+      - .image_registry.auth.cert_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.cert_file }}
+        dest: >-
+          /etc/docker/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/client.cert
+    - name: Docker | Copy image registry server key to the remote node
+      when:
+      - .image_registry.auth.key_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.key_file }}
+        dest: >-
+          /etc/docker/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/client.key
+    - name: Docker | Copy image registry CA certificate to the remote node
+      when: .image_registry.auth.ca_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.ca_file }}
+        dest: >-
+          /etc/containerd/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/ca.crt
+    - name: Docker | Copy image registry client certificate to the remote node
+      when:
+      - .image_registry.auth.cert_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.cert_file }}
+        dest: >-
+          /etc/containerd/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/client.crt
+    - name: Docker | Copy image registry client key to the remote node
+      when:
+      - .image_registry.auth.key_file | fileExists
+      copy:
+        src: >-
+          {{ .image_registry.auth.key_file }}
+        dest: >-
+          /etc/containerd/certs.d/{{ .image_registry.auth.registry | splitList "/" | first }}/client.key
+
+# install or update docker service
+- name: Docker | Configure Docker daemon
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  block:
+    - name: Docker | Read existing Docker daemon configuration
+      when: .cri.docker.daemon_policy | eq "merge"
+      ignore_errors: true
+      command: cat /etc/docker/daemon.json
+      register: docker_daemon_existing
+      register_type: json
+    - name: Docker | Generate Docker configuration file
+      template:
+        src: daemon.json
+        dest: /etc/docker/daemon.json
+- name: Docker | Deploy the Docker systemd service file
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  copy:
+    src: docker.service
+    dest: /etc/systemd/system/docker.service
+- name: Containerd | Configure containerd
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  block:
+    - name: Containerd | Read existing containerd configuration
+      when: .cri.containerd.config_policy | eq "merge"
+      ignore_errors: true
+      command: cat /etc/containerd/config.toml
+      register: containerd_config_existing
+    - name: Containerd | Generate the containerd configuration file
+      template:
+        src: config.toml
+        dest: /etc/containerd/config.toml
+
+# containerd v2 reads the registry settings from /etc/containerd/certs.d/<host>/hosts.toml,
+# because it dropped registry.configs.<host>.tls and refuses to combine registry.mirrors with
+# registry.config_path (see templates/config.toml). The mirrors, the insecure registries and
+# the TLS material are therefore written there as well. A v1 node keeps using the
+# configuration generated above and ignores these files.
+#
+# This mirrors the task the cri/containerd role runs, because both roles render the same
+# /etc/containerd/config.toml: templates/config.toml is a verbatim copy of the one the
+# cri/containerd role uses, so it points a v2 node at config_path and the files have to be
+# written here too. The TLS material is already in place, the certificate copy tasks above put
+# it under /etc/containerd/certs.d/<host>/.
+#
+# The four places a registry can be configured in are merged into one item per registry, so
+# that templates/hosts.toml renders every hosts.toml of the node. Later sources win when the
+# same registry is configured twice, which is the order they had when each of them wrote its
+# own file. The dictionary is turned into a list because a task cannot iterate a mapping.
+# The v2 layout is written whenever containerd is (re)configured, by the same condition the
+# `Configure containerd` block above uses, so that config.toml and the hosts.toml files it points
+# at are never out of step: a re-run that leaves config.toml alone leaves these files alone too.
+#
+# hosts.toml is always rendered by kk and overwrites whatever the node had before, regardless of
+# `config_policy`. Key-by-key merging is not an option here: a hosts.toml holds one registry and
+# spells its mirrors as [host.<url>] tables, so the two sets would have to be interleaved into a
+# single file. To keep this simple, kk owns the hosts.toml files outright.
+- name: Containerd | Write the registry configuration for containerd v2
+  when:
+    - .cri.containerd_version | default "" | hasPrefix "v2."
+    - or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  loop: >-
+    {{- $hosts := dict -}}
+    {{- /* cri.registry.mirrors: every mirror is tried before registry-1.docker.io. */ -}}
+    {{- if .cri.registry.mirrors | empty | not -}}
+    {{- $_ := set $hosts "docker.io" (dict "server" "https://registry-1.docker.io" "mirrors" .cri.registry.mirrors) -}}
+    {{- end -}}
+    {{- /* cri.registry.insecure_registries: these endpoints serve no TLS. */ -}}
+    {{- $insecureScheme := "http" -}}
+    {{- range .cri.registry.insecure_registries -}}
+    {{- $_ := set $hosts . (dict "server" (printf "%s://%s" $insecureScheme .) "skip_verify" true) -}}
+    {{- end -}}
+    {{- /* image_registry: the certificate and key are taken from the registry directory. */ -}}
+    {{- $registryHost := .image_registry.auth.registry | splitList "/" | first -}}
+    {{- if and ($registryHost | empty | not) (ne $registryHost "hub.kubesphere.com.cn") -}}
+    {{- $skipTLS := true -}}
+    {{- if hasKey .image_registry.auth "skip_tls_verify" -}}
+    {{- $skipTLS = .image_registry.auth.skip_tls_verify | toBool -}}
+    {{- end -}}
+    {{- $cfg := dict "server" (printf "%s://%s" (.image_registry.auth.plain_http | default false | ternary "http" "https") $registryHost) "skip_verify" $skipTLS -}}
+    {{- if .image_registry.auth.ca_file | default "" | fileExists -}}
+    {{- $_ := set $cfg "ca" (printf "/etc/containerd/certs.d/%s/ca.crt" $registryHost) -}}
+    {{- end -}}
+    {{- if and (.image_registry.auth.cert_file | default "" | fileExists) (.image_registry.auth.key_file | default "" | fileExists) -}}
+    {{- $_ := set $cfg "client_cert" (printf "/etc/containerd/certs.d/%s/client.crt" $registryHost) -}}
+    {{- $_ := set $cfg "client_key" (printf "/etc/containerd/certs.d/%s/client.key" $registryHost) -}}
+    {{- end -}}
+    {{- $_ := set $hosts $registryHost $cfg -}}
+    {{- end -}}
+    {{- /* cri.registry.auths: the file paths of the entry are reused as they are. */ -}}
+    {{- range .cri.registry.auths | default list -}}
+    {{- $skipTLS := true -}}
+    {{- if hasKey . "skip_tls_verify" -}}
+    {{- $skipTLS = .skip_tls_verify | toBool -}}
+    {{- end -}}
+    {{- $cfg := dict "server" (printf "https://%s" (.registry | splitList "/" | first)) "skip_verify" $skipTLS -}}
+    {{- if .ca_file -}}
+    {{- $_ := set $cfg "ca" .ca_file -}}
+    {{- end -}}
+    {{- if .cert_file -}}
+    {{- $_ := set $cfg "client_cert" .cert_file -}}
+    {{- $_ := set $cfg "client_key" (.key_file | default .cert_file) -}}
+    {{- end -}}
+    {{- $_ := set $hosts (.registry | splitList "/" | first) $cfg -}}
+    {{- end -}}
+    {{- /* leave the dictionary key with the item, it is the destination directory. */ -}}
+    {{- range $host, $cfg := $hosts -}}
+    {{- $_ := set $cfg "host" $host -}}
+    {{- end -}}
+    {{- $hosts | values | toJson -}}
+  template:
+    src: hosts.toml
+    dest: /etc/containerd/certs.d/{{ .item.host }}/hosts.toml
+- name: Docker | Deploy the containerd systemd service file
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  copy:
+    src: containerd.service
+    dest: /etc/systemd/system/containerd.service
+- name: Docker | Start and enable Docker and containerd services
+  when: or (.docker_install_version.error | empty | not) (.docker_install_version.stdout | ne .cri.docker_version) (.cri.docker.daemon_policy | empty | not)
+  command: |
+    systemctl daemon-reload && systemctl restart containerd.service && systemctl enable containerd.service
+    systemctl daemon-reload && systemctl restart docker.service && systemctl enable docker.service
+
+# cri-dockerd is handled by the dedicated `cri/cridockerd` role (referenced both as a
+# dependency of the `cri` role for create/upgrade-cri, and directly in upgrade_cluster.yaml
+# for Kubernetes-only upgrades on docker + Kubernetes >= v1.24.0). It is intentionally NOT
+# included here so that a Kubernetes-only upgrade never touches the Docker daemon.

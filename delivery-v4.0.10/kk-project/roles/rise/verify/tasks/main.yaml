@@ -1,0 +1,9 @@
+- name: Rise | Copy architecture-matched nerdctl
+  copy:
+    src: "{{ .rise.tools_dir }}/{{ .binary_type }}/nerdctl"
+    dest: /usr/local/bin/nerdctl
+    mode: 0755
+- name: Rise | Verify CRI and nerdctl Harbor image pulls
+  command: |
+    crictl --runtime-endpoint unix:///run/containerd/containerd.sock pull {{ .image_registry.auth.registry }}/kubernetes/pause:{{ .kubernetes.sandbox_image.tag }}
+    nerdctl --namespace k8s.io --hosts-dir /etc/containerd/certs.d pull {{ .image_registry.auth.registry }}/kubernetes/pause:{{ .kubernetes.sandbox_image.tag }}
