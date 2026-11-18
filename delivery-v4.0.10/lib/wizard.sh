@@ -137,10 +137,10 @@ wizard_setup() {
         if [ "${CLI_COMPONENTS:-all}" != harbor ]; then
             choice=1; [ "$masters" -lt 3 ] || choice=2
             if [ "$masters" -ge 3 ]; then
-                ask_valid 'API 入口：2 kube-vip 虚拟 IP；3 已有外部负载均衡' "$choice" '2|3'
-            else ask_valid 'API 入口：1 单控制平面本机；2 kube-vip；3 外部负载均衡' "$choice" '1|2|3'; fi
-            case "$REPLY" in 1) endpoint=local;; 2) endpoint=kube-vip;; 3) endpoint=external;; esac
-            if [ "$endpoint" != local ]; then
+                ask_valid 'API 入口：2 kube-vip 虚拟 IP；3 已有外部负载均衡；4 haproxy 内置代理（免 VIP）' "$choice" '2|3|4'
+            else ask_valid 'API 入口：1 单控制平面本机；2 kube-vip；3 外部负载均衡；4 haproxy 内置代理' "$choice" '1|2|3|4'; fi
+            case "$REPLY" in 1) endpoint=local;; 2) endpoint=kube-vip;; 3) endpoint=external;; 4) endpoint=haproxy;; esac
+            if [ "$endpoint" = kube-vip ] || [ "$endpoint" = external ]; then
                 ask_valid 'API VIP / 外部负载均衡 IP' '' ipv4; endpoint_address="$REPLY"
                 ask_valid 'API 入口端口' 6443 port; endpoint_port="$REPLY"
             fi

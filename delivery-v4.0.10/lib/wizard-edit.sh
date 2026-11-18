@@ -22,11 +22,11 @@ wizard_edit() (
             1) WIZARD_NODES="$NODES"; CLI_COMPONENTS="$COMPONENTS"; wizard_nodes
                wizard_set "$temp" NODES "$WIZARD_NODES";;
             2)
-                case "$ENDPOINT_TYPE" in local) value=1;; kube-vip) value=2;; external) value=3;; esac
-                ask_valid 'API 入口：1 单控制平面；2 kube-vip；3 外部负载均衡' "$value" '1|2|3'
-                case "$REPLY" in 1) value=local;; 2) value=kube-vip;; 3) value=external;; esac
+                case "$ENDPOINT_TYPE" in local) value=1;; kube-vip) value=2;; external) value=3;; haproxy) value=4;; esac
+                ask_valid 'API 入口：1 单控制平面；2 kube-vip；3 外部负载均衡；4 haproxy 内置代理（免 VIP）' "$value" '1|2|3|4'
+                case "$REPLY" in 1) value=local;; 2) value=kube-vip;; 3) value=external;; 4) value=haproxy;; esac
                 wizard_set "$temp" ENDPOINT_TYPE "$value"
-                if [ "$value" != local ]; then
+                if [ "$value" = kube-vip ] || [ "$value" = external ]; then
                     ask_valid 'API VIP / 外部负载均衡 IP' "$ENDPOINT_ADDRESS" ipv4; wizard_set "$temp" ENDPOINT_ADDRESS "$REPLY"
                     ask_valid 'API 入口端口' "$ENDPOINT_PORT" port; wizard_set "$temp" ENDPOINT_PORT "$REPLY"
                 else wizard_set "$temp" ENDPOINT_ADDRESS ''; fi;;

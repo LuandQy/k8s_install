@@ -357,7 +357,9 @@ def validate_topology(config):
     if masters < 1 or masters % 2 == 0:
         raise ModelError('Master 与 Etcd 节点数量必须为 1、3、5 等正奇数（当前为 %s），偶数节点存在高可用脑裂风险' % masters)
     if masters >= 3 and settings.get('ENDPOINT_TYPE') == 'local':
-        raise ModelError('多 Master 高可用（%s 节点）必须使用 kube-vip 或 external 入口' % masters)
+        raise ModelError('多 Master 高可用（%s 节点）必须使用 kube-vip、haproxy 或 external 入口' % masters)
+    if settings.get('ENDPOINT_TYPE') == 'haproxy' and settings.get('ENDPOINT_ADDRESS', '').strip():
+        raise ModelError('haproxy 内置负载均衡模式无需且禁止填写 ENDPOINT_ADDRESS')
     if settings.get('ENDPOINT_TYPE') in ('kube-vip', 'external') and not settings.get('ENDPOINT_ADDRESS', '').strip():
         raise ModelError('%s 入口模式必须填写 ENDPOINT_ADDRESS' % settings.get('ENDPOINT_TYPE'))
     return config

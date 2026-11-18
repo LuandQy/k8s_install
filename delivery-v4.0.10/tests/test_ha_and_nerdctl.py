@@ -310,5 +310,61 @@ node_run_parallel worker_fail "{rows}"
             self.assertIn('boom:node4', res_fail.stdout + res_fail.stderr)
 
 
+class HaproxyEndpointModeTests(unittest.TestCase):
+    def test_haproxy_endpoint_type_allows_multi_master_without_vip(self):
+        spec = config_model.schema()
+        endpoint_field = next(f for f in spec['settings'] if f['key'] == 'ENDPOINT_TYPE')
+        self.assertIn('haproxy', endpoint_field['enum'])
+
+        for odd in (3, 5):
+            cfg = config_model.default_config()
+            cfg['nodes'] = _make_nodes(odd, worker_only_count=2)
+            cfg['settings']['ENDPOINT_TYPE'] = 'haproxy'
+            cfg['settings']['ENDPOINT_ADDRESS'] = ''
+            validated = config_model.validate_topology(cfg)
+            self.assertEqual(validated['settings']['ENDPOINT_TYPE'], 'haproxy')
+
+        # Non-empty ENDPOINT_ADDRESS under haproxy must be rejected
+        cfg_bad = config_model.default_config()
+        cfg_bad['nodes'] = _make_nodes(3, worker_only_count=1)
+        cfg_bad['settings']['ENDPOINT_TYPE'] = 'haproxy'
+        cfg_bad['settings']['ENDPOINT_ADDRESS'] = '192.0.2.200'
+        with self.assertRaises(config_model.ModelError):
+            config_model.validate_topology(cfg_bad)
+
+    def test_selected_target_images_includes_haproxy_when_enabled(self):
+        script = f'''
+set -euo pipefail
+ROOT="{ROOT}"
+KUBE_VERSION="v1.36.4"
+COMPONENTS="all"
+ENDPOINT_TYPE="haproxy"
+LOCAL_STORAGE="true"
+NFS_MODE="none"
+. "$ROOT/lib/artifact-requirements.sh"
+. "$ROOT/lib/images.sh"
+selected_target_images
+'''
+        res = subprocess.run(['/bin/bash', '-c', script], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        images = json.loads(res.stdout)
+        self.assertIn('docker.io/library/haproxy:2.9.6-alpine', images)
+        self.assertNotIn('docker.io/plndr/kube-vip:v0.7.2', images)
+
+    def test_cluster_verify_validate_addresses_supports_multi_master_haproxy_dns_set(self):
+        sys.path.insert(0, str(ROOT / 'lib'))
+        import cluster_verify  # noqa: E402
+        expected = ['192.0.2.11', '192.0.2.12', '192.0.2.13']
+        cluster_verify.validate_addresses(['192.0.2.13', '192.0.2.11', '192.0.2.12'], expected)
+        with self.assertRaises(RuntimeError):
+            cluster_verify.validate_addresses(['192.0.2.11', '192.0.2.99'], expected)
+        with self.assertRaises(RuntimeError):
+            cluster_verify.validate_addresses(['127.0.0.1'], ['127.0.0.1'])
+
+        worker_ep = (ROOT / 'kk-project' / 'roles' / 'rise' / 'worker-endpoints' / 'tasks' / 'main.yaml').read_text(encoding='utf-8')
+        self.assertIn('haproxy', worker_ep)
+        self.assertIn('kubekey kubernetes control_plane_endpoint BEGIN', worker_ep)
+
+
 if __name__ == '__main__':
     unittest.main()

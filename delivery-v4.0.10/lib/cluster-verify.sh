@@ -14,14 +14,21 @@ cluster_verify() {
     [ "$HARBOR_HTTP" = false ] || die 'cluster-verify 的严格 TLS 验收不支持 HTTP Harbor'
     parse_node "$selected"
     node_lines | jq -Rn '[inputs|split("|")|{name:.[0],ip:.[2],arch:.[5],roles:(.[7]|split(",")),data_path:.[9],data_mode:.[10]}]' > "$RUN_DIR/cluster-verify-nodes.json"
+    local api_ips_json
+    if [ "${ENDPOINT_TYPE:-local}" = haproxy ]; then
+        api_ips_json=$(jq -c '[.[] | select(.roles | index("control_plane") != null) | .ip] | unique' "$RUN_DIR/cluster-verify-nodes.json")
+    else
+        api_ips_json=$(jq -nc --arg ip "${ENDPOINT_ADDRESS:-$NODE_INTERNAL}" '[$ip]')
+    fi
     jq -n --slurpfile nodes "$RUN_DIR/cluster-verify-nodes.json" \
         --arg cluster "$CLUSTER_NAME" --arg version "$KUBE_VERSION" --arg api "$K8S_DOMAIN" \
-        --arg api_ip "${ENDPOINT_ADDRESS:-$NODE_INTERNAL}" --argjson api_port "$ENDPOINT_PORT" \
+        --arg api_ip "${ENDPOINT_ADDRESS:-$NODE_INTERNAL}" --argjson api_ips "$api_ips_json" \
+        --arg endpoint_type "${ENDPOINT_TYPE:-local}" --argjson api_port "$ENDPOINT_PORT" \
         --arg harbor "$HARBOR_DOMAIN" --arg harbor_ip "$(component_registry_address)" --argjson harbor_port "$HARBOR_PORT" \
         --argjson storage "$LOCAL_STORAGE" --arg local_path "$LOCAL_PATH" \
         --arg verification_mode "${CLUSTER_VERIFY_MODE:-selected-node}" \
         --arg fingerprint "$(cat "$WF_DIR/fingerprint")" \
-        '{schema:1,cluster:$cluster,version:$version,nodes:$nodes[0],api:{host:$api,port:$api_port,ip:$api_ip},harbor:{host:$harbor,port:$harbor_port,ip:$harbor_ip},storage:{enabled:$storage,path:$local_path},verification:{mode:$verification_mode},fingerprint:$fingerprint}' > "$base"
+        '{schema:1,cluster:$cluster,version:$version,nodes:$nodes[0],api:{host:$api,port:$api_port,ip:$api_ip,ips:$api_ips,type:$endpoint_type},harbor:{host:$harbor,port:$harbor_port,ip:$harbor_ip},storage:{enabled:$storage,path:$local_path},verification:{mode:$verification_mode},fingerprint:$fingerprint}' > "$base"
     # Receipt checks and image selection finish before any node or cluster mutation.
     python3 "$ROOT/lib/cluster_verify.py" config --base "$base" \
         --registry-receipt "$WF_DIR/images-verify.json" --node-receipt "$WF_DIR/node-images-verify.json" \

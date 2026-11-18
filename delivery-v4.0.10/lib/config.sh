@@ -47,7 +47,7 @@ validate_env() {
     [[ "$HARBOR_VRRP_ID" =~ ^[0-9]{1,3}$ ]] && [ "$HARBOR_VRRP_ID" -ge 1 ] && [ "$HARBOR_VRRP_ID" -le 255 ] ||
         die 'HARBOR_VRRP_ID 必须为 1-255 的整数（仅 ha-harbor 使用）'
     [ "$REGISTRY_MODE" = ha-harbor ] || [ "$HARBOR_VRRP_ID" = 31 ] || log_warn 'HARBOR_VRRP_ID 只用于 ha-harbor；当前仓库模式会忽略该值'
-    case "$ENDPOINT_TYPE" in local|kube-vip|external) ;; *) die 'ENDPOINT_TYPE 无效';; esac
+    case "$ENDPOINT_TYPE" in local|kube-vip|haproxy|external) ;; *) die 'ENDPOINT_TYPE 无效';; esac
     case "$REGISTRY_MODE" in harbor|ha-harbor|external-harbor) ;; *) die 'REGISTRY_MODE 无效';; esac
     case "${CLUSTER_VERIFY_MODE:-selected-node}" in selected-node|cross-node) ;; *) die 'CLUSTER_VERIFY_MODE 必须为 selected-node/cross-node';; esac
     if [ "$REGISTRY_MODE" = external-harbor ]; then
@@ -106,6 +106,7 @@ validate_env() {
     [[ "$MIN_ROOT_FREE_GIB" =~ ^[1-9][0-9]{0,4}$ ]] || die 'MIN_ROOT_FREE_GIB 必须为1-99999的整数'
     [[ "$ALLOW_ROOT_WORKDIR" = true || "$ALLOW_ROOT_WORKDIR" = false ]] || die 'ALLOW_ROOT_WORKDIR 必须为 true/false'
     [ -z "$ENDPOINT_ADDRESS" ] || ipv4 "$ENDPOINT_ADDRESS" || die 'ENDPOINT_ADDRESS 无效'
+    [ "$ENDPOINT_TYPE" != haproxy ] || [ -z "$ENDPOINT_ADDRESS" ] || die 'haproxy 模式无需填写 ENDPOINT_ADDRESS'
     [ "$ENDPOINT_TYPE" != kube-vip ] || [ -n "$ENDPOINT_ADDRESS" ] || die 'kube-vip 需要 ENDPOINT_ADDRESS'
     [ "$ENDPOINT_TYPE" != external ] || [ -n "$ENDPOINT_ADDRESS" ] || die 'external 需要 ENDPOINT_ADDRESS'
     for val in "$WORK_DIR" "$PACKAGE_WORK_DIR" "$HARBOR_SOURCE_DIR" "$LOCAL_PATH" "$NFS_PATH"; do safe_path "$val"; done
@@ -174,7 +175,7 @@ validate_env() {
     [ "$explicit_etcd" -eq 0 ] || [ "$explicit_etcd" -eq "${#CONTROL_PLANES[@]}" ] || die '显式声明 etcd 时必须与全部 master 一一对应，禁止部分 master 挂载 etcd'
     [ "${#CONTROL_PLANES[@]}" -ge 1 ] && [ "$(( ${#CONTROL_PLANES[@]} % 2 ))" -eq 1 ] || die 'master 与 etcd 节点数量必须为 1、3、5 等正奇数，避免高可用脑裂'
     [ "${#CONTROL_PLANES[@]}" -eq "${#ETCD_NODES[@]}" ] || die 'etcd 必须与 master 一一对应'
-    [ "${#CONTROL_PLANES[@]}" -lt 3 ] || [ "$ENDPOINT_TYPE" != local ] || die '多 master 高可用（3、5… 节点）必须使用 kube-vip 或 external'
+    [ "${#CONTROL_PLANES[@]}" -lt 3 ] || [ "$ENDPOINT_TYPE" != local ] || die '多 master 高可用（3、5… 节点）必须使用 kube-vip、haproxy 或 external'
     [ "$ENDPOINT_TYPE" != kube-vip ] || [[ "$addresses" != *" $ENDPOINT_ADDRESS "* ]] || die 'API VIP 与节点地址冲突'
     fi
     if [ "$REGISTRY_MODE" = external-harbor ]; then

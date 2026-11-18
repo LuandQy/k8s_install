@@ -159,21 +159,22 @@
       error.hidden = valid;
       error.textContent = valid ? '' : topo.reason;
     }
-    const vip = document.querySelector('[data-setting-key="ENDPOINT_ADDRESS"]');
-    if (vip) {
-      const needVip = !isHarborOnly && (count >= 3 || state.config.settings.ENDPOINT_TYPE !== 'local');
-      setHidden(vip, !needVip);
-      const input = vip.querySelector('input');
-      if (input) input.required = !isHarborOnly && count >= 3;
-    }
     const type = state.config.settings.ENDPOINT_TYPE;
     const typeSelect = document.getElementById('setting-ENDPOINT_TYPE');
-    if (!isHarborOnly && count === 1 && type !== 'local') {
+    if (!isHarborOnly && count === 1 && type === 'kube-vip') {
       state.config.settings.ENDPOINT_TYPE = 'local';
       if (typeSelect) typeSelect.value = 'local';
     } else if (!isHarborOnly && count >= 3 && type === 'local') {
       state.config.settings.ENDPOINT_TYPE = 'kube-vip';
       if (typeSelect) typeSelect.value = 'kube-vip';
+    }
+    const effectiveType = state.config.settings.ENDPOINT_TYPE;
+    const vip = document.querySelector('[data-setting-key="ENDPOINT_ADDRESS"]');
+    if (vip) {
+      const needVip = !isHarborOnly && (effectiveType === 'kube-vip' || effectiveType === 'external');
+      setHidden(vip, !needVip);
+      const input = vip.querySelector('input');
+      if (input) input.required = needVip;
     }
     applyHarborRules();
     syncButtons();
@@ -706,7 +707,9 @@
   function pruneConfig() {
     const config = logic.pruneConfig(state.config, activeRules(), authMode());
     delete config.settings.ARTIFACT_SHA256;
-    if (masterCount() === 1 && config.settings.ENDPOINT_TYPE === 'local') delete config.settings.ENDPOINT_ADDRESS;
+    if (config.settings.ENDPOINT_TYPE === 'local' || config.settings.ENDPOINT_TYPE === 'haproxy') {
+      config.settings.ENDPOINT_ADDRESS = '';
+    }
     if (config.settings.SSH_AUTH_MODE !== 'key') delete config.settings.SSH_KEY;
     if (config.settings.SSH_AUTH_MODE === 'password') {
       config.nodes.forEach((node, index) => { if (node.connection === 'ssh') node.password_env = 'NODE' + (index + 1) + '_PASSWORD'; });

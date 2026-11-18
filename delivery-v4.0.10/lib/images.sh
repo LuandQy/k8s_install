@@ -22,6 +22,11 @@ selected_target_images() {
         for image in kube-apiserver kube-controller-manager kube-scheduler kube-proxy; do printf 'registry.k8s.io/%s:%s\n' "$image" "$KUBE_VERSION"; done
         printf 'registry.k8s.io/pause:%s\nregistry.k8s.io/coredns/coredns:%s\nregistry.k8s.io/dns/k8s-dns-node-cache:%s\n' "$pause" "$dns" "$nodecache"
         if [ "$ENDPOINT_TYPE" = kube-vip ]; then printf 'docker.io/plndr/kube-vip:v0.7.2\n'; fi
+        if [ "$ENDPOINT_TYPE" = haproxy ]; then
+            local haproxy_tag
+            haproxy_tag=$(image_default_tag haproxy) || return 1
+            printf 'docker.io/library/haproxy:%s\n' "$haproxy_tag"
+        fi
         jq -r --arg version "$calico" '.[$version][]' "$ROOT/lib/calico-images.json" || return 1
         # cluster-verify also needs an offline diagnostic Pod when PVC testing
         # is disabled. Keep this image in the explicit import/verification list.

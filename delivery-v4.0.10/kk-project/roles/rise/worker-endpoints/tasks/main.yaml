@@ -4,6 +4,14 @@
     set -e
     sed -e '/# rise-worker endpoints$/d' -e '/# kubekey kubernetes control_plane_endpoint BEGIN/,/# kubekey kubernetes control_plane_endpoint END/d' /etc/hosts > /etc/hosts.rise-worker.tmp
     cat /etc/hosts.rise-worker.tmp > /etc/hosts
+    {{- if eq (.kubernetes.control_plane_endpoint.type | default "local") "haproxy" }}
+    cat <<'EOF' >> /etc/hosts
+    # kubekey kubernetes control_plane_endpoint BEGIN
+    {{ .rise.api_address }} {{ .kubernetes.control_plane_endpoint.host }}
+    # kubekey kubernetes control_plane_endpoint END
+    EOF
+    {{- else }}
     printf '%s %s # rise-worker endpoints\n' {{ .rise.api_address | quote }} {{ .kubernetes.control_plane_endpoint.host | quote }} >> /etc/hosts
+    {{- end }}
     printf '%s %s # rise-worker endpoints\n' {{ .rise.harbor_address | quote }} {{ .image_registry.auth.registry | splitList ":" | first | quote }} >> /etc/hosts
     rm -f /etc/hosts.rise-worker.tmp

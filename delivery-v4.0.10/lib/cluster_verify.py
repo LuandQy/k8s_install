@@ -161,7 +161,9 @@ def validate_addresses(values, expected):
     require(bool(values), 'DNS returned no address')
     parsed = [ipaddress.ip_address(x) for x in values]
     require(not any(x.is_loopback or x.is_unspecified or x.is_link_local or x.is_multicast for x in parsed), 'DNS returned loopback/unspecified/link-local/multicast address')
-    require(set(values) == {expected}, 'DNS returned an unexpected address: ' + ','.join(values))
+    expected_set = set(expected) if isinstance(expected, (list, tuple, set)) else {expected}
+    require(bool(expected_set), 'Expected DNS address set cannot be empty')
+    require(set(values) == expected_set, 'DNS returned an unexpected address: ' + ','.join(values))
 
 
 def elf_info(path):
@@ -546,7 +548,8 @@ class Acceptance:
         require(len(dns) == 1, 'Cannot uniquely identify CoreDNS Service')
         resolvers = list(dict.fromkeys([None, *[line.split()[1] for line in resolv.splitlines() if line.startswith('nameserver ')], dns[0]]))
         observations = []
-        domains = [(standard, api_ip), (self.config['harbor']['host'], self.config['harbor']['ip']), (self.config['api']['host'], self.config['api']['ip'])]
+        expected_api_ips = self.config['api'].get('ips') or self.config['api']['ip']
+        domains = [(standard, api_ip), (self.config['harbor']['host'], self.config['harbor']['ip']), (self.config['api']['host'], expected_api_ips)]
         for server in resolvers:
             for domain, expected in domains:
                 # An IP literal is not a DNS name. Querying it makes some

@@ -150,17 +150,20 @@
       "enum": [
         "local",
         "kube-vip",
+        "haproxy",
         "external"
       ],
-      "help": "这是 Kubernetes API 入口，不是下方节点的 local/ssh 连接方式。三个控制平面需 kube-vip 或外部入口。",
+      "help": "这是 Kubernetes API 入口，不是下方节点的 local/ssh 连接方式。多控制平面支持 kube-vip、内置 haproxy（免 VIP）或外部负载均衡。",
       "option_labels": {
         "local": "单控制平面入口",
         "kube-vip": "API 虚拟 IP",
+        "haproxy": "内置 HAProxy 节点代理（免 VIP）",
         "external": "已有外部负载均衡"
       },
       "option_help": {
         "local": "API 使用单控制平面本机入口；与节点连接方式 local/ssh 无关。",
         "kube-vip": "填写独立 API VIP，不能与节点或 Harbor VIP 相同。",
+        "haproxy": "无需申请 VIP：Master 走本机 127.0.0.1，纯 Worker 自动部署本地 HAProxy Static Pod 负载全部 Master。",
         "external": "填写已准备好的 API 负载均衡地址；脚本不替你搭建外部负载均衡。"
       }
     },
@@ -170,7 +173,14 @@
       "group": "network",
       "type": "string",
       "default": "192.0.2.100",
-      "help": "kube-vip 或 external 模式填写 API VIP/负载均衡 IPv4；local 模式通常留空。不会分配地址或探测冲突。"
+      "visible_when": {
+        "field": "ENDPOINT_TYPE",
+        "in": [
+          "kube-vip",
+          "external"
+        ]
+      },
+      "help": "kube-vip 或 external 模式填写 API VIP/负载均衡 IPv4；local 与 haproxy 模式免填。不会分配地址或探测冲突。"
     },
     {
       "key": "ENDPOINT_PORT",
