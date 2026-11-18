@@ -83,7 +83,7 @@ sudo bash deploy.sh redeploy --env "$CONFIG" --preview
 sudo bash deploy.sh add-workers --state-dir /srv/rise-state/site-a --nodes /srv/rise-config/workers-new.env --preview
 ```
 
-预览不连接节点；实际扩容须审阅原集群健康、回执兼容性、制品平台/版本、新节点数据和接入后再去掉 `--preview`。未完成扩容按日志和原状态人工审查，不直接重复 all 或删除 `.expansion` 记录。扩容不是新增控制平面或通用拓扑迁移接口。
+预览不连接节点；实际扩容须审阅原集群健康、回执兼容性、制品平台/版本、新节点数据和接入后再去掉 `--preview`。扩容及 `redeploy` 重建完成后，默认会自动同步 `${STATE_DIR}.workflow` 拓扑快照并执行后置镜像校验、集群功能验收与最新 Excel 台账导出（特殊维护场景可显式加 `--skip-post-verify` 仅同步快照）。未完成扩容按日志和原状态人工审查，不直接重复 all 或删除 `.expansion` 记录。扩容不是新增控制平面或通用拓扑迁移接口。
 
 ## 常见故障定位
 

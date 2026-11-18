@@ -8,11 +8,11 @@
 | --- | --- | --- |
 | 入口 | [deploy.sh](../deploy.sh)、[web/server.py](../web/server.py)、[web/executor.py](../web/executor.py) | 选择操作、收集参数、只读校验、展示计划；Web 执行器把确认后的任务交给同一个 CLI |
 | 配置与渲染 | [lib/config.sh](../lib/config.sh)、[lib/render.sh](../lib/render.sh)、`config-base.yaml`、`inventory-base.yaml` | 校验 54 项设置与 13 列 NODES；生成 KubeKey 的 Config/Inventory |
-| 节点准备 | [init.sh](../init.sh)、[lib/access.sh](../lib/access.sh)、[lib/services.sh](../lib/services.sh)、[node_scripts/](../node_scripts) | SSH/sudo/公钥、存储与内核、NTP/NFS、离线 OS 依赖 |
+| 节点准备 | [init.sh](../init.sh)、[lib/access.sh](../lib/access.sh)、[lib/services.sh](../lib/services.sh)、[node_scripts/](../node_scripts) | SSH/sudo/公钥、存储与内核、K8s 节点 `nerdctl` 预装、NTP/NFS、离线 OS 依赖 |
 | 安装编排 | [lib/workflow.sh](../lib/workflow.sh)、[lib/components.sh](../lib/components.sh)、[lib/harbor.sh](../lib/harbor.sh)、[lib/images.sh](../lib/images.sh) | 阶段顺序、前置门禁、仓库项目/镜像验收、调用 KubeKey |
-| 安装执行 | KubeKey（`kk`）与 [kk-project](../kk-project) 模板 | Harbor、证书、etcd、Kubernetes、containerd、Calico、kube-vip、镜像导入 |
+| 安装执行 | KubeKey（`kk`）与 [kk-project](../kk-project) 模板 | Harbor、证书、etcd、Kubernetes、containerd、Calico、kube-vip/HAProxy、镜像导入 |
 | 验收与台账 | [lib/cluster-verify.sh](../lib/cluster-verify.sh)、[lib/ledger.py](../lib/ledger.py)、`check.sh` | 节点身份、CRI 实拉、DNS/TLS/Service/PVC、XLSX/JSON/HTML/CSV |
-| 状态与维护 | [lib/resume.sh](../lib/resume.sh)、[lib/redeploy.sh](../lib/redeploy.sh)、[lib/expansion.sh](../lib/expansion.sh) | 阶段记录、回执、指纹、resume/reset/redeploy/add-workers |
+| 状态与维护 | [lib/resume.sh](../lib/resume.sh)、[lib/redeploy.sh](../lib/redeploy.sh)、[lib/expansion.sh](../lib/expansion.sh)、[lib/post-verify.sh](../lib/post-verify.sh) | 阶段记录、回执、指纹、resume/reset/redeploy/add-workers 及维护后置验收同步 |
 
 ## 2. 一次首装的控制流
 

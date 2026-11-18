@@ -51,7 +51,8 @@ CONFIG=/srv/rise-config/site-new.env
 | connection | Web 示例 ssh；CLI 可选 local/ssh | local 是执行控制端本机，最多一个；ssh 是远端节点。它与 API 入口 ENDPOINT_TYPE=local 无关 |
 | SSH 用户 / 端口 | root / 22 | 可用普通用户，但实际 CLI 需要远端 sudo -n；没有单独填写 sudo 密码的流程 |
 | 数据策略 | Web 示例 native；CLI 向导提供选择 | native 使用已有目录，不等于格式化；existing 要求已有独立挂载；auto 在正式初始化时交互选择；format 会破坏指定整盘且须另外确认 |
-| ENDPOINT_TYPE | local | 单控制平面入口；kube-vip 使用控制平面 VIP；external 使用已有外部 LB。三控制平面要求后两者，外部 LB 不由本工具搭建 |
+| INSTALL_NERDCTL | true | 默认在前置阶段为全部 K8s 节点安装随包 `nerdctl`（`v2.2.1`）并配置 `/etc/nerdctl/nerdctl.toml`（`namespace="k8s.io"`、`cgroup_manager="cgroupfs"`） |
+| ENDPOINT_TYPE | Web 默认 kube-vip；CLI 单机默认 local | 单控制平面可用 local；多控制平面（`3 / 5 / 7...` 正奇数 Master+Etcd 同机）须选择 `kube-vip`（控制平面漂移 VIP）、`haproxy`（纯 Worker 内置本地 HAProxy 代理，免 VIP）或 `external`（已有外部 LB） |
 | Pod / Service CIDR | 10.233.64.0/18 / 10.233.0.0/18 | 须互不重叠，不能与节点、外部入口和实际网络冲突 |
 | LOCAL_STORAGE / LOCAL_PATH | true / /data/local-pv | 节点本地 PV，节点故障不自动迁移数据 |
 | NFS_MODE / NTP_MODE | none / existing | NFS 默认不安装；时间默认保留并验收现场 chrony。其他模式需要相应服务端、离线依赖及配置 |
@@ -61,7 +62,7 @@ Web 对各枚举值显示中文含义和选项说明，保留原始 env 值方�
 ## 日志与调试
 
 - 日志级别由 `RISE_LOG_LEVEL` 控制：`quiet` / `info`（默认）/ `debug`。`--debug`（或 `--log-level debug`）会输出 DEBUG 行、`set -x` 命令追踪与失败位置。
-- 本交付的日志**不做脱敏**：可能包含密码、私钥路径和完整命令；按凭据材料保管，不要粘贴到工单或外发。
+- Web 执行器会对当次提交的内存密码实施精确 `[REDACTED]` 掩码，并在日志超过 `4 MiB` 时保留头部 `1 MiB` 与最新尾部 `3 MiB`；CLI 原始日志仍可能包含私钥路径和完整命令，须按凭据材料保管，不要粘贴到公共工单或外发。
 - Web 任务默认按 Info 显示，任务详情可切换 Debug；提交前可勾选“以调试模式运行”。
 
 ## 单机与 SSH 登录
