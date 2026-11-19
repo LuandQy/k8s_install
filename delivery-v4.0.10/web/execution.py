@@ -10,12 +10,14 @@ import copy
 import datetime
 import fcntl
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
 import pwd
 import re
 import secrets
+import shutil
 import socket
 import stat
 import subprocess
@@ -25,7 +27,7 @@ import unicodedata
 import uuid
 
 from artifact_digest import resolve as resolve_artifact_sha
-from config_model import ModelError, default_config, export_env, normalize_config
+from config_model import ModelError, _quote, default_config, export_env, import_env, normalize_config, schema
 
 MAX_REQUEST = 256 * 1024
 MAX_RESPONSE = 1024 * 1024
@@ -258,16 +260,32 @@ VALID_STAGES = frozenset(STAGE_COMMANDS)
 
 
 class CLIRunner:
-    """Runs the shared CLI workflow for the requested stage group."""
+    """Runs the shared CLI workflow for the requested stage group or worker scaling."""
     def __init__(self, project):
         self.project = Path(project)
 
+    def _run_step(self, argv, cwd, environment, emit):
+        with subprocess.Popen(argv, cwd=str(cwd), env=environment,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, start_new_session=True) as child:
+            while True:
+                block = os.read(child.stdout.fileno(), 8192)
+                if not block:
+                    break
+                emit(block)
+            return child.wait()
+
     def __call__(self, job, environment, emit):
         stage = job.get('stage') or 'all'
-        if stage not in STAGE_COMMANDS:
-            raise ValueError('invalid stage')
         environment = dict(environment)
         environment['RISE_LOG_LEVEL'] = 'debug' if job.get('debug') else 'info'
+        if stage == 'add-workers':
+            emit(('[web] stage add-workers\n').encode('utf-8'))
+            argv = ['/bin/bash', '--noprofile', '--norc', str(self.project / 'deploy.sh'),
+                    'add-workers', '--state-dir', job['state_dir'], '--nodes', job['workers_path'], '-y']
+            return self._run_step(argv, Path(job['workers_path']).parent, environment, emit)
+        if stage not in STAGE_COMMANDS:
+            raise ValueError('invalid stage')
         environment['DELIVERY_GRANULAR_STEP'] = 'true'
         for step in STAGE_COMMANDS[stage]:
             emit(('[web] stage %s / %s\n' % (stage, step)).encode('utf-8'))
@@ -275,17 +293,9 @@ class CLIRunner:
                     'cli', '--step', step, '--env', job['config_path'], '--non-interactive']
             if job.get('debug'):
                 argv.append('--debug')
-            with subprocess.Popen(argv, cwd=str(Path(job['config_path']).parent), env=environment,
-                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT, start_new_session=True) as child:
-                while True:
-                    block = os.read(child.stdout.fileno(), 8192)
-                    if not block:
-                        break
-                    emit(block)
-                code = child.wait()
-                if code != 0:
-                    return code
+            code = self._run_step(argv, Path(job['config_path']).parent, environment, emit)
+            if code != 0:
+                return code
             stop_file = environment.get('DELIVERY_STOP_FILE')
             if stop_file and Path(stop_file).exists():
                 return 130
@@ -294,7 +304,7 @@ class CLIRunner:
 
 class ExecutionService:
     def __init__(self, project_root, data_dir, work_root, allowed_uid, preview_cli=None,
-                 runner=None, trusted_uid=0, plan_ttl=300, clock=None):
+                 runner=None, probe_runner=None, trusted_uid=0, plan_ttl=300, clock=None):
         self.trusted_uid = trusted_uid
         if type(allowed_uid) is not int or allowed_uid < 0:
             fail(400, 'invalid_uid', '必须指定允许连接的本机用户 UID。')
@@ -320,6 +330,7 @@ class ExecutionService:
         self.cluster_dir = protected_directory(self.data / 'cluster', trusted_uid)
         self.preview_cli = preview_cli
         self.runner = runner or CLIRunner(self.project)
+        self.probe_runner = probe_runner or self._default_probe_runner
         self.plan_ttl, self.clock = plan_ttl, clock or time.time
         self.plans, self.jobs, self.threads = {}, {}, {}
         self.closed = False
@@ -419,6 +430,8 @@ class ExecutionService:
         for key in ('HARBOR_CA', 'HARBOR_CERT', 'HARBOR_KEY'):
             if settings[key]:
                 protected_path(settings[key], self.trusted_uid)
+        if settings['HARBOR_KEY'] and Path(settings['HARBOR_KEY']).stat().st_mode & 0o077:
+            fail(400, 'untrusted_key', 'Harbor 私钥必须仅允许执行器用户读取（0600 或 0400）。')
         if any(n['connection'] == 'ssh' for n in config['nodes']) and settings['SSH_AUTH_MODE'] != 'password':
             key = settings['SSH_KEY']
             if not key:
@@ -527,25 +540,33 @@ class ExecutionService:
             self.plans[identifier] = {'public': entry, 'expiry': expires}
         return copy.deepcopy(entry)
 
+    @staticmethod
+    def _validate_secret_text(value):
+        if (not isinstance(value, str) or len(value) > 4096
+                or any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs') for c in value)
+                or len(value.encode('utf-8')) > 4096):
+            fail(400, 'invalid_credentials', '密码必须为不含控制字符的单行文本，且不超过 4096 字节。')
+
+    @staticmethod
+    def _base_env():
+        # Local-node steps (storage.sh, kernel/deps probes) need sbin tools such
+        # as blkid/wipefs; /usr/bin:/bin alone breaks local connections. Keep a
+        # fixed root PATH instead of inheriting the caller's environment.
+        return {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+
     def _environment(self, plan, credentials):
         if not isinstance(credentials, dict) or set(credentials) - {r['key'] for r in plan['required_credentials']}:
             fail(400, 'invalid_credentials', '凭据仅接受计划声明的 Harbor 和节点名称。')
         for spec in plan['required_credentials']:
             value = credentials.get(spec['key'], '')
-            if (not isinstance(value, str) or len(value) > 4096
-                    or any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs') for c in value)
-                    or len(value.encode('utf-8')) > 4096):
-                fail(400, 'invalid_credentials', '密码必须为不含控制字符的单行文本，且不超过 4096 字节。')
+            self._validate_secret_text(value)
             if spec['required'] and not value:
                 fail(400, 'missing_credentials', '缺少计划要求的密码；密码不会保存到草稿。')
         if any(spec['key'] == 'harbor' for spec in plan['required_credentials']):
             if not re.fullmatch(r'[A-Za-z0-9.!_@%+=:-]{12,128}', credentials.get('harbor', '')):
                 fail(400, 'invalid_credentials', 'Harbor 密码需 12–128 位，字符范围与 CLI 一致。')
-        # Local-node steps (storage.sh, kernel/deps probes) need sbin tools such
-        # as blkid/wipefs; /usr/bin:/bin alone breaks local connections. Keep a
-        # fixed root PATH instead of inheriting the caller's environment.
-        env = {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-               'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
+        env = self._base_env()
         if 'harbor' in credentials:
             env['HARBOR_PASSWORD'] = credentials['harbor']
         for node in plan['effective_config']['nodes']:
@@ -556,6 +577,46 @@ class ExecutionService:
 
     def _save(self, job):
         private_write(self.jobs_dir / job['id'] / 'job.json', encoded(job))
+
+    def _verify_idempotency(self, identifier, binding):
+        stored = self.jobs_dir / identifier / 'binding.json'
+        expected = None
+        if stored.exists() and not stored.is_symlink():
+            try:
+                expected = strict_json(stored.read_text(encoding='utf-8'))
+            except (OSError, ValueError, TypeError):
+                expected = None
+        if expected is None:
+            expected = self.jobs[identifier].get('binding')
+        if expected is None:
+            fail(409, 'idempotency_corrupted', '该 request_id 的绑定记录损坏；请按任务 ID 查询状态，勿重复提交。')
+        if expected != binding:
+            fail(409, 'idempotency_conflict', '该 request_id 已绑定其他提交，不能重复执行。')
+        return self._snapshot(self.jobs[identifier])
+
+    @staticmethod
+    def _is_zero_mutation_access_failure(prev_job, state_dir):
+        if not prev_job or prev_job.get('state') != 'failed':
+            return False
+        if (Path(str(state_dir) + '.deployment').exists()
+                or Path(str(state_dir) + '.harbor.deployment').exists()
+                or (state_dir / 'cluster.env').exists()):
+            return False
+        wf_dir = Path(str(state_dir) + '.workflow')
+        if not wf_dir.exists():
+            return prev_job.get('stage') in ('prepare', 'all')
+        if (wf_dir / 'prepare-started').exists():
+            return False
+        records = list(wf_dir.glob('*.json'))
+        if not records:
+            return True
+        if len(records) == 1 and records[0].name == 'access.json':
+            try:
+                data = strict_json(records[0].read_text(encoding='utf-8'))
+                return data.get('status') in ('failed', 'running')
+            except (OSError, ValueError, TypeError):
+                return False
+        return False
 
     def submit(self, body):
         if set(body) not in ({'request_id', 'plan_id', 'config_sha256', 'acknowledged', 'credentials', 'debug'},
@@ -580,10 +641,7 @@ class ExecutionService:
             fail(400, 'invalid_request', '计划 ID 与配置摘要必须为文本。')
         with self.lock:
             if identifier in self.jobs:
-                stored = self.jobs_dir / identifier / 'binding.json'
-                if strict_json(stored.read_text(encoding='utf-8')) != binding:
-                    fail(409, 'idempotency_conflict', '该 request_id 已绑定其他提交，不能重复执行。')
-                return self._snapshot(self.jobs[identifier])
+                return self._verify_idempotency(identifier, binding)
             if self.closed:
                 fail(503, 'executor_closing', '执行器正在关闭。')
             if self.recovery_required:
@@ -605,15 +663,21 @@ class ExecutionService:
             env = self._environment(plan, body['credentials'])
             settings = plan['effective_config']['settings']
             cluster = settings['CLUSTER_NAME']
+            state = Path(settings['STATE_DIR'])
             claim = self.claims_dir / (cluster + '.json')
             is_continuation = False
+            reset_access_wf = False
             if claim.exists() or claim.is_symlink():
-                if stage in ('prepare', 'harbor', 'k8s'):
+                if stage in ('all', 'prepare', 'harbor', 'k8s'):
                     try:
                         claim_data = strict_json(claim.read_text(encoding='utf-8'))
                         prev_id = claim_data.get('id')
                         prev_job = self.jobs.get(prev_id)
-                        if (prev_job and prev_job.get('state') not in ACTIVE
+                        if stage in ('all', 'prepare') and self._is_zero_mutation_access_failure(prev_job, state):
+                            is_continuation = True
+                            reset_access_wf = True
+                        elif (stage in ('prepare', 'harbor', 'k8s')
+                                and prev_job and prev_job.get('state') not in ACTIVE
                                 and prev_job.get('state') != 'interrupted'
                                 and not (prev_job.get('stage') in ('all', 'k8s') and prev_job.get('state') == 'succeeded')):
                             if prev_job.get('config_sha256') != plan['config_sha256']:
@@ -625,9 +689,14 @@ class ExecutionService:
                         pass
                 if not is_continuation:
                     fail(409, 'cluster_claimed', '此集群已有部署任务记录；请使用原配置和 CLI 核查维护，禁止重复首装。')
-            state = Path(settings['STATE_DIR'])
             if not is_continuation and (state.parent.exists() or Path(settings['WORK_DIR']).exists()):
                 fail(409, 'existing_environment', '管理状态或工作目录已存在；Web 仅支持新环境首装。')
+            if reset_access_wf:
+                wf_dir = Path(str(state) + '.workflow')
+                for stale in ('access.json', 'access-identity.json', 'access-identity.sha256', 'fingerprint'):
+                    candidate = wf_dir / stale
+                    if candidate.exists() or candidate.is_symlink():
+                        candidate.unlink()
             # Claim is durable before any child or workflow state can be created.
             private_write(claim, encoded({'id': identifier, 'cluster_name': cluster, 'created_at': stamp()}))
             try:
@@ -644,7 +713,8 @@ class ExecutionService:
                        'config_sha256': plan['config_sha256'], 'config_path': str(config_path),
                        'state_dir': str(state), 'work_dir': settings['WORK_DIR'], 'executor': copy.deepcopy(self.identity),
                        'operation': stage, 'stage': stage, 'debug': body['debug'],
-                       'log_level': 'debug' if body['debug'] else 'info'}
+                       'log_level': 'debug' if body['debug'] else 'info',
+                       'binding': binding}
                 self.jobs[identifier] = job
                 self._save(job)
                 del self.plans[body['plan_id']]
@@ -661,7 +731,7 @@ class ExecutionService:
         # Mask submitted memory credentials while retaining 1 MiB head + 3 MiB tail.
         secret_values = [
             val for key, val in env.items()
-            if key == 'HARBOR_PASSWORD' or (key.startswith('RISE_WEB_NODE_') and key.endswith('_PASSWORD'))
+            if key == 'HARBOR_PASSWORD' or (key.startswith('RISE_WEB_') and key.endswith('_PASSWORD'))
         ]
         decoder = JobLog(secrets=secret_values)
         path = self.jobs_dir / identifier / 'output.log'
@@ -934,6 +1004,348 @@ class ExecutionService:
         finally:
             os.close(fd)
 
+    @staticmethod
+    def _map_os_package(os_id, os_version):
+        ident = (os_id or '').strip().strip('"').strip("'").lower()
+        ver = (os_version or '').strip().strip('"').strip("'").lower()
+        if ident == 'ubuntu':
+            if ver == '24.04':
+                return 'ubuntu-24.04-debs'
+            if ver == '22.04':
+                return 'ubuntu-22.04-debs'
+        if ident in ('kylin', 'neokylin') and ('10' in ver or ver.startswith('v10')):
+            return 'kylin-v10SP3-2403-rpms'
+        return ''
+
+    @staticmethod
+    def _norm_arch(raw_arch):
+        value = (raw_arch or '').strip().lower()
+        if value in ('x86_64', 'amd64'):
+            return 'amd64'
+        if value in ('aarch64', 'arm64'):
+            return 'arm64'
+        return value
+
+    def _default_probe_runner(self, env_path, run_dir, environment):
+        argv = ['/bin/bash', '--noprofile', '--norc', str(self.project / 'check.sh'),
+                '--env', str(env_path), '--output', str(run_dir), '--collect-only']
+        proc = subprocess.run(argv, cwd=str(env_path.parent), env=environment,
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90)
+        return proc.returncode, (proc.stderr or proc.stdout or '')[-2000:]
+
+    def probe_nodes(self, config, credentials=None):
+        """Run read-only check.sh --collect-only for configured nodes without mutating state."""
+        self._source_check()
+        try:
+            config = normalize_config(config)
+        except ModelError as error:
+            fail(400, 'invalid_config', str(error))
+        if not config['nodes']:
+            fail(400, 'no_nodes', '请先添加至少一个节点。')
+        settings = config['settings']
+        for idx, node in enumerate(config['nodes'], 1):
+            node['password_env'] = 'RISE_WEB_NODE_%s_PASSWORD' % idx if node['connection'] == 'ssh' else ''
+        config = normalize_config(config)
+        self._inputs(config)
+        creds = {} if credentials is None else credentials
+        if not isinstance(creds, dict):
+            fail(400, 'invalid_credentials', 'credentials 必须是对象。')
+        allowed_creds = {'harbor'} | {'node:' + n['name'] for n in config['nodes'] if n.get('name')}
+        if set(creds) - allowed_creds:
+            fail(400, 'invalid_credentials', '凭据键必须是 harbor 或当前节点名称。')
+        for val in creds.values():
+            self._validate_secret_text(val)
+        env = self._base_env()
+        try:
+            any_ssh_pw = False
+            for node in config['nodes']:
+                if node['connection'] != 'ssh':
+                    continue
+                secret = creds.get('node:' + node['name'], '')
+                if settings['SSH_AUTH_MODE'] == 'password' and not secret:
+                    fail(400, 'missing_credentials', '密码认证模式下探测节点需填写节点 %s 的 SSH 密码。' % node['name'])
+                if secret:
+                    env[node['password_env']] = secret
+                    any_ssh_pw = True
+            if settings['SSH_AUTH_MODE'] == 'bootstrap' and any_ssh_pw and not Path(settings['SSH_KEY']).exists():
+                env['BOOTSTRAP'] = '1'
+            probe_dir = protected_directory(self.work / ('.probe-' + uuid.uuid4().hex), self.trusted_uid)
+            try:
+                env_path = probe_dir / 'probe.env'
+                private_write(env_path, export_env(config).encode('utf-8'))
+                run_dir = probe_dir / 'run'
+                rc, tail = self.probe_runner(env_path, run_dir, env)
+                checks_file = run_dir / 'checks.json'
+                if not checks_file.is_file():
+                    fail(400, 'probe_failed', '节点探测未能生成检查报告：' + (tail.strip() or '请核对配置与控制端连通性。'))
+                checks = strict_json(checks_file.read_text(encoding='utf-8'))
+                summary_file = run_dir / 'summary.json'
+                summary_map = {}
+                if summary_file.is_file():
+                    for item in strict_json(summary_file.read_text(encoding='utf-8')):
+                        summary_map[item.get('name', '')] = item
+                node_by_name = {n['name']: n for n in config['nodes']}
+                probed = []
+                for item in checks.get('nodes', []):
+                    name = item.get('node', '')
+                    report = summary_map.get(name, {})
+                    id_log = run_dir / 'reports' / name / 'identity.log'
+                    os_id = os_ver = raw_arch = ''
+                    if id_log.is_file():
+                        for line in id_log.read_text(encoding='utf-8', errors='replace').splitlines():
+                            if line.startswith('RISE_OS='):
+                                os_id = line.split('=', 1)[1]
+                            elif line.startswith('RISE_OS_VERSION='):
+                                os_ver = line.split('=', 1)[1]
+                            elif line.startswith('RISE_ARCH='):
+                                raw_arch = line.split('=', 1)[1]
+                    arch = self._norm_arch(report.get('arch') or raw_arch)
+                    os_pkg = self._map_os_package(os_id, os_ver)
+                    probed.append({
+                        'name': name,
+                        'ip': report.get('ip') or node_by_name.get(name, {}).get('internal_address', ''),
+                        'status': item.get('status', 'unknown'),
+                        'arch': arch,
+                        'os_package': os_pkg,
+                        'hostname': report.get('hostname', ''),
+                        'conflicts': report.get('conflicts', []),
+                        'error_summary': item.get('error_summary', ''),
+                    })
+                return {
+                    'ok': rc == 0,
+                    'exit_code': rc,
+                    'nodes': probed,
+                    'global_errors': checks.get('global_errors', []),
+                }
+            finally:
+                shutil.rmtree(str(probe_dir), ignore_errors=True)
+        finally:
+            env.clear()
+
+    def _cluster_dirs(self):
+        candidates = []
+        if self.cluster_dir.is_dir():
+            candidates.extend(sorted(self.cluster_dir.glob('*/state')))
+        proj_state = self.project / 'state'
+        if proj_state.is_dir() and not proj_state.is_symlink():
+            try:
+                protected_path(proj_state, self.trusted_uid, directory=True)
+                candidates.extend(sorted(proj_state.iterdir()))
+            except (OSError, ExecutionError):
+                pass
+        seen = set()
+        result = []
+        for path in candidates:
+            if not path.is_dir() or path.is_symlink():
+                continue
+            try:
+                protected_path(path, self.trusted_uid, directory=True)
+            except (OSError, ExecutionError):
+                continue
+            if not (path / 'cluster.env').is_file():
+                continue
+            real = os.path.realpath(str(path))
+            if real in seen:
+                continue
+            seen.add(real)
+            result.append(path)
+        return result
+
+    def _read_cluster_record(self, state_dir):
+        env_path = state_dir / 'cluster.env'
+        protected_path(env_path, self.trusted_uid)
+        parsed = import_env(env_path.read_text(encoding='utf-8'))
+        settings = parsed['settings']
+        receipt = Path(str(state_dir) + '.deployment')
+        dep_status = 'unknown'
+        status_file = receipt / 'status'
+        if status_file.is_file() and not status_file.is_symlink():
+            try:
+                dep_status = status_file.read_text(encoding='utf-8').strip() or 'unknown'
+            except OSError:
+                dep_status = 'unknown'
+        pending_expansion = Path(str(state_dir) + '.expansion').exists()
+        wf_stages = {}
+        wf_dir = Path(str(state_dir) + '.workflow')
+        if wf_dir.is_dir() and not wf_dir.is_symlink():
+            for rec in sorted(wf_dir.glob('*.json')):
+                if rec.is_symlink() or rec.stat().st_size > 64 * 1024:
+                    continue
+                try:
+                    data = strict_json(rec.read_text(encoding='utf-8'))
+                    st = data.get('stage')
+                    sv = data.get('status')
+                    if isinstance(st, str) and isinstance(sv, str):
+                        wf_stages[st] = sv
+                except (OSError, ValueError):
+                    continue
+        return {
+            'cluster_name': settings.get('CLUSTER_NAME', state_dir.name),
+            'state_dir': str(state_dir),
+            'kube_version': settings.get('KUBE_VERSION', ''),
+            'components': settings.get('COMPONENTS', 'all'),
+            'endpoint_type': settings.get('ENDPOINT_TYPE', 'local'),
+            'registry_mode': settings.get('REGISTRY_MODE', 'harbor'),
+            'ssh_auth_mode': settings.get('SSH_AUTH_MODE', 'bootstrap'),
+            'deployment_status': dep_status,
+            'pending_expansion': pending_expansion,
+            'expandable': dep_status == 'complete' and not pending_expansion,
+            'nodes': [{'name': n['name'], 'address': n['address'], 'internal_address': n['internal_address'],
+                       'arch': n['arch'], 'os': n['os'], 'roles': n['roles']} for n in parsed['nodes']],
+            'workflow_stages': wf_stages,
+        }, parsed
+
+    def clusters(self):
+        items = []
+        for state_dir in self._cluster_dirs():
+            try:
+                summary, _ = self._read_cluster_record(state_dir)
+                items.append(summary)
+            except (OSError, ValueError, ModelError, ExecutionError):
+                continue
+        return {'clusters': items}
+
+    def expand_workers(self, body):
+        allowed_keys = ({'request_id', 'cluster_name', 'new_nodes', 'credentials', 'debug'},
+                        {'request_id', 'cluster_name', 'new_nodes', 'credentials', 'debug', 'state_dir'})
+        if not isinstance(body, dict) or set(body) not in allowed_keys:
+            fail(400, 'invalid_request', '扩容请求字段不完整或包含不支持的字段。')
+        identifier = body['request_id']
+        if not isinstance(identifier, str) or not UUID.fullmatch(identifier):
+            fail(400, 'invalid_id', 'request_id 必须为 UUID v4。')
+        cluster = body['cluster_name']
+        if not isinstance(cluster, str) or not CLUSTER.fullmatch(cluster):
+            fail(400, 'invalid_cluster', '集群名称无效。')
+        if type(body['debug']) is not bool:
+            fail(400, 'invalid_request', 'debug 必须是布尔值。')
+        raw_nodes = body['new_nodes']
+        if not isinstance(raw_nodes, list) or not 1 <= len(raw_nodes) <= 32:
+            fail(400, 'invalid_nodes', 'new_nodes 必须为 1–32 项节点数组。')
+
+        requested_state = body.get('state_dir')
+        matches = []
+        for candidate in self._cluster_dirs():
+            try:
+                summary, parsed = self._read_cluster_record(candidate)
+            except (OSError, ValueError, ModelError, ExecutionError):
+                continue
+            if summary['cluster_name'] != cluster:
+                continue
+            if requested_state and os.path.realpath(str(candidate)) != os.path.realpath(str(requested_state)):
+                continue
+            matches.append((candidate, summary, parsed))
+        if not matches:
+            fail(404, 'cluster_not_found', '未找到匹配的可扩容受管集群状态目录。')
+        if len(matches) > 1:
+            fail(409, 'ambiguous_cluster', '存在多个同名集群状态目录，请指定 state_dir。')
+        state_dir, summary, existing = matches[0]
+        if summary['pending_expansion']:
+            fail(409, 'expansion_pending', '该集群存在未完成的扩容标记，请先通过 CLI 核查。')
+        if summary['deployment_status'] != 'complete':
+            fail(409, 'cluster_not_complete', '只有已完成交付（complete）的集群才支持在线扩容 Worker。')
+
+        try:
+            norm = normalize_config({'schema_version': 1, 'settings': existing['settings'], 'nodes': raw_nodes})
+        except ModelError as error:
+            fail(400, 'invalid_config', str(error))
+        new_nodes = norm['nodes']
+        existing_names = {n['name'] for n in existing['nodes']}
+        existing_ips = {n['address'] for n in existing['nodes']} | {n['internal_address'] for n in existing['nodes']}
+        seen_names, seen_ips = set(), set()
+        for idx, node in enumerate(new_nodes, 1):
+            if set(node.get('roles') or []) != {'worker'}:
+                fail(400, 'invalid_worker_roles', '在线扩容仅允许纯 worker 角色，禁止包含 control_plane、etcd 或 registry。')
+            if node.get('data_mode') not in ('native', 'existing'):
+                fail(400, 'unsupported_storage', 'Web 非交互扩容仅接受 native 或 existing 数据策略。')
+            if not re.fullmatch(r'[a-z][a-z0-9-]*', node.get('name', '')):
+                fail(400, 'invalid_node_name', '新节点名称必须为小写字母开头的字母、数字或连字符。')
+            for ip_key in ('address', 'internal_address'):
+                try:
+                    ipaddress.IPv4Address(node.get(ip_key, ''))
+                except ipaddress.AddressValueError:
+                    fail(400, 'invalid_ip', '节点 %s 的 IPv4 地址无效。' % node['name'])
+            if node['name'] in existing_names or node['name'] in seen_names:
+                fail(400, 'duplicate_node', '新增节点名称与原集群或批内节点重复：%s。' % node['name'])
+            for ip_val in (node['address'], node['internal_address']):
+                if ip_val in existing_ips:
+                    fail(400, 'duplicate_ip', '新增节点 IP 与原集群重复：%s。' % ip_val)
+            if node['internal_address'] in seen_ips:
+                fail(400, 'duplicate_ip', '新增节点内部 IP 重复：%s。' % node['internal_address'])
+            seen_names.add(node['name'])
+            seen_ips.add(node['internal_address'])
+            node['password_env'] = 'RISE_WEB_NEW_NODE_%s_PASSWORD' % idx if node['connection'] == 'ssh' else ''
+
+        creds = body['credentials']
+        if not isinstance(creds, dict):
+            fail(400, 'invalid_credentials', 'credentials 必须是对象。')
+        allowed_creds = {'harbor'} | {'node:' + n['name'] for n in new_nodes}
+        if set(creds) - allowed_creds:
+            fail(400, 'invalid_credentials', '凭据键必须是 harbor 或新增节点名称。')
+        for val in creds.values():
+            self._validate_secret_text(val)
+
+        need_harbor = summary['components'] != 'k8s' and summary['registry_mode'] != 'external-harbor'
+        if need_harbor:
+            harbor_pw = creds.get('harbor', '')
+            if not harbor_pw:
+                fail(400, 'missing_credentials', '缺少原集群 Harbor admin 密码。')
+            if not re.fullmatch(r'[A-Za-z0-9.!_@%+=:-]{12,128}', harbor_pw):
+                fail(400, 'invalid_credentials', 'Harbor 密码需 12–128 位，字符范围与 CLI 一致。')
+        if summary['ssh_auth_mode'] == 'password':
+            for node in new_nodes:
+                if node['connection'] == 'ssh' and not creds.get('node:' + node['name']):
+                    fail(400, 'missing_credentials', '密码认证模式下需填写新节点 %s 的 SSH 密码。' % node['name'])
+
+        binding = {'op': 'expand_workers', 'request_id': identifier, 'cluster_name': cluster,
+                   'state_dir': str(state_dir), 'new_nodes': new_nodes, 'debug': body['debug']}
+        with self.lock:
+            if identifier in self.jobs:
+                return self._verify_idempotency(identifier, binding)
+            if self.closed:
+                fail(503, 'executor_closing', '执行器正在关闭。')
+            if self.recovery_required:
+                fail(409, 'recovery_required', '执行器曾中断，需管理员核查已有任务后处理。')
+            if any(job['state'] in ACTIVE for job in self.jobs.values()):
+                fail(409, 'job_busy', '已有部署或扩容任务执行中；不自动排队。')
+            self._source_check()
+            env = self._base_env()
+            if need_harbor:
+                env['HARBOR_PASSWORD'] = creds['harbor']
+            for node in new_nodes:
+                secret = creds.get('node:' + node['name'], '')
+                if node['connection'] == 'ssh' and secret:
+                    env[node['password_env']] = secret
+            columns = [f['key'] for f in schema()['node_fields']]
+            rows = ['|'.join(','.join(n[c]) if isinstance(n[c], list) else str(n[c]) for c in columns) for n in new_nodes]
+            workers_text = '# Web 提交的新增 worker 清单\nNEW_NODES=' + _quote('\n'.join(rows)) + '\n'
+            try:
+                directory = protected_directory(self.jobs_dir / identifier, self.trusted_uid)
+                workers_path = directory / 'workers.env'
+                private_write(workers_path, workers_text.encode('utf-8'))
+                private_write(directory / 'binding.json', encoded(binding))
+                private_write(directory / 'output.log', b'')
+                now = stamp()
+                job = {'id': identifier, 'state': 'queued', 'cluster_name': cluster, 'created_at': now, 'updated_at': now,
+                       'exit_code': None, 'stop_requested': False, 'message': '已提交 Worker 扩容任务。',
+                       'config_sha256': hashlib.sha256(encoded(new_nodes)).hexdigest(),
+                       'config_path': str(state_dir / 'cluster.env'),
+                       'workers_path': str(workers_path),
+                       'state_dir': str(state_dir), 'work_dir': existing['settings'].get('WORK_DIR', ''),
+                       'executor': copy.deepcopy(self.identity),
+                       'operation': 'add-workers', 'stage': 'add-workers', 'debug': body['debug'],
+                       'log_level': 'debug' if body['debug'] else 'info',
+                       'binding': binding}
+                self.jobs[identifier] = job
+                self._save(job)
+                env['DELIVERY_STOP_FILE'] = str(directory / 'stop-requested')
+                thread = threading.Thread(target=self._run, args=(identifier, env), name='expand-' + identifier, daemon=False)
+                self.threads[identifier] = thread
+                thread.start()
+            except Exception:
+                self.recovery_required = True
+                fail(500, 'submission_unconfirmed', '扩容任务提交结果未确认；请核查任务记录。')
+            return self._snapshot(job)
+
     def request(self, op, body=None):
         body = {} if body is None else body
         if op == 'capabilities':
@@ -942,6 +1354,14 @@ class ExecutionService:
             shape(body, ()); return self.ledger()
         if op == 'artifact_sha256':
             shape(body, ('path',)); return self.artifact_sha256(body['path'])
+        if op == 'probe_nodes':
+            if set(body) not in ({'config'}, {'config', 'credentials'}):
+                fail(400, 'invalid_request', '节点探测请求字段无效。')
+            return self.probe_nodes(body['config'], body.get('credentials'))
+        if op == 'clusters':
+            shape(body, ()); return self.clusters()
+        if op == 'expand_workers':
+            return self.expand_workers(body)
         if op == 'preview':
             if set(body) not in ({'config'}, {'config', 'stage'}):
                 fail(400, 'invalid_request', '预览字段不完整或包含不支持的字段。')

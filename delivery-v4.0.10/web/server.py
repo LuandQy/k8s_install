@@ -9,6 +9,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import signal
@@ -406,6 +407,33 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body['path'], str):
                 raise APIError(400, 'invalid_path', '归档路径必须为文本。')
             self._send(200, self._execute('artifact_sha256', {'path': body['path']})); return
+        if route == '/api/execution/probe-nodes':
+            if self.command != 'POST':
+                raise APIError(405, 'method_not_allowed', '节点探测接口只支持 POST。')
+            if self.server.execution is None:
+                raise APIError(404, 'execution_disabled', '当前服务未连接本机执行器，不能探测远端节点。')
+            body = self._body()
+            if set(body) not in ({'config'}, {'config', 'credentials'}):
+                raise APIError(400, 'invalid_request', '节点探测请求字段不完整或包含不支持的字段。')
+            config = normalize_config(body['config'])
+            creds = normalize_credentials(body.get('credentials'), config)
+            self._send(200, self._execute('probe_nodes', {'config': config, 'credentials': creds})); return
+        if route == '/api/execution/clusters':
+            if self.command != 'GET':
+                raise APIError(405, 'method_not_allowed', '集群状态接口只支持 GET。')
+            if self.server.execution is None:
+                raise APIError(404, 'execution_disabled', '当前服务未连接本机执行器，无法读取受管集群状态。')
+            self._send(200, self._execute('clusters', {})); return
+        if route == '/api/execution/expand-workers':
+            if self.command != 'POST':
+                raise APIError(405, 'method_not_allowed', 'Worker 扩容接口只支持 POST。')
+            if self.server.execution is None:
+                raise APIError(404, 'execution_disabled', '当前服务未连接本机执行器，无法提交扩容任务。')
+            body = self._body()
+            required = {'request_id', 'cluster_name', 'new_nodes', 'credentials', 'debug'}
+            if not isinstance(body, dict) or not required <= set(body) or set(body) - required - {'state_dir'}:
+                raise APIError(400, 'invalid_request', '扩容请求字段不完整或包含不支持的字段。')
+            self._send(200, self._execute('expand_workers', body)); return
         if route == '/api/ledger':
             if self.command != 'GET':
                 raise APIError(405, 'method_not_allowed', '台账只支持 GET。')
@@ -531,6 +559,32 @@ def make_server(project_root, data_dir, port=0, token=None, execution=None):
         raise
 
 
+def ssh_tunnel_hint(port, env=None, user=None):
+    source = os.environ if env is None else env
+    conn = (source.get('SSH_CONNECTION') or '').strip()
+    client = (source.get('SSH_CLIENT') or '').strip()
+    tty = (source.get('SSH_TTY') or '').strip()
+    if not (conn or client or tty):
+        return ''
+    host_ip = '<控制端IP>'
+    port_opt = ''
+    if conn:
+        parts = conn.split()
+        if len(parts) >= 3 and parts[2]:
+            host_ip = parts[2]
+        if len(parts) >= 4 and parts[3].isdigit() and parts[3] != '22':
+            port_opt = '-p %s ' % parts[3]
+    if not user:
+        try:
+            user = pwd.getpwuid(os.getuid()).pw_name
+        except KeyError:
+            user = source.get('USER') or '<用户名>'
+    return (
+        '检测到远程 SSH 会话；因工作台仅监听 127.0.0.1，请在本机终端执行以下端口转发命令后再打开上述链接：\n'
+        '  ssh -N %s-L %s:127.0.0.1:%s %s@%s' % (port_opt, port, port, user, host_ip)
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description='本机 Web 配置工作台；显式连接管理员执行器后可提交首次安装。')
     parser.add_argument('--data-dir', required=True, help='项目外的专用草稿目录，新目录或权限 0700 的空目录')
@@ -550,6 +604,9 @@ def main():
     label = '已配置本机执行器连接；部署须预览并确认。' if execution is not None else '仅本机配置工作台，无部署执行能力。'
     print(label + '使用当前终端的临时链接进入；不要转发含 token 的链接。', flush=True)
     print('http://127.0.0.1:%s/#token=%s' % (server.server_port, server.web_token), flush=True)
+    hint = ssh_tunnel_hint(server.server_port)
+    if hint:
+        print(hint, flush=True)
     try:
         server.serve_forever(poll_interval=.25)
     except KeyboardInterrupt:

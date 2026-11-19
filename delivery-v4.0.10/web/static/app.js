@@ -25,7 +25,8 @@
     schema: null, defaults: null, suggestions: {}, config: null,
     dirty: false, generation: 0, busy: false, credentials: {harbor: '', nodes: new Map()},
     showPasswords: false, step: 1, capability: null, jobs: [], job: null, poll: null,
-    offset: 0, log: '', executorLoading: false, envView: false
+    offset: 0, log: '', executorLoading: false, envView: false,
+    clusters: [], expandTarget: null
   };
   let token = '';
 
@@ -741,10 +742,73 @@
     if (!state.config.settings.ARTIFACT_FILE && suggestionPath()) state.config.settings.ARTIFACT_FILE = suggestionPath();
     state.dirty = false;
     state.credentials = {harbor: '', nodes: new Map()};
+    clearProbeResults();
     renderSettings(); renderNodes(); renderCredentials(); clearResults();
   }
   function changed() {
     state.generation += 1; state.dirty = true;
+  }
+  function clearProbeResults() {
+    const host = $('probe-results');
+    if (host) { host.hidden = true; host.replaceChildren(); }
+  }
+  function renderProbeResults(response) {
+    const host = $('probe-results');
+    if (!host) return;
+    host.replaceChildren();
+    const nodes = response && response.nodes || [];
+    if (!nodes.length) { host.hidden = true; return; }
+    const table = el('table', null, 'probe-table');
+    const head = document.createElement('thead');
+    const hrow = document.createElement('tr');
+    ['节点', 'SSH / 接入状态', '实测主机名', '实测架构', '实测 OS 依赖包', '冲突 / 详情'].forEach((label) => hrow.append(el('th', label)));
+    head.append(hrow); table.append(head);
+    const body = document.createElement('tbody');
+    nodes.forEach((item) => {
+      const row = document.createElement('tr');
+      row.append(el('td', item.name + (item.ip ? ' (' + item.ip + ')' : '')));
+      const statusText = item.status === 'passed' ? '通过' : (item.status === 'collected_with_conflicts' ? '连通（有冲突）' : '失败');
+      row.append(el('td', statusText));
+      row.append(el('td', item.hostname || '未采集'));
+      row.append(el('td', item.arch || '未识别'));
+      row.append(el('td', item.os_package || '未映射'));
+      const detail = (item.conflicts && item.conflicts.length) ? item.conflicts.join('；') : (item.error_summary || '无');
+      row.append(el('td', detail));
+      body.append(row);
+    });
+    table.append(body); host.append(table); host.hidden = false;
+  }
+  async function probeNodes() {
+    if (!state.capability) { notice('执行器未启用，无法在线探测节点。', 'error'); return; }
+    if (!state.config || !state.config.nodes.length) { notice('请先添加至少一个节点。', 'error'); return; }
+    notice(''); setBusy(true);
+    try {
+      const response = await api('/api/execution/probe-nodes', 'POST', {
+        config: pruneConfig(), credentials: collectCredentials()
+      }, 120000);
+      renderProbeResults(response);
+      let synced = 0;
+      (response.nodes || []).forEach((probed) => {
+        const target = state.config.nodes.find((row) => row.name === probed.name);
+        if (!target) return;
+        if ((probed.arch === 'amd64' || probed.arch === 'arm64') && target.arch !== probed.arch) {
+          target.arch = probed.arch; synced += 1;
+        }
+        if (probed.os_package && ['ubuntu-24.04-debs', 'ubuntu-22.04-debs', 'kylin-v10SP3-2403-rpms'].includes(probed.os_package) && target.os !== probed.os_package) {
+          target.os = probed.os_package; synced += 1;
+        }
+      });
+      if (synced > 0) { changed(); renderNodes(); }
+      const failedCount = (response.nodes || []).filter((n) => n.status === 'failed').length;
+      const conflictCount = (response.nodes || []).filter((n) => n.conflicts && n.conflicts.length).length;
+      if (response.ok && !failedCount && !conflictCount) {
+        notice('全部节点探测通过' + (synced > 0 ? '，并已按实测结果自动回填节点架构或系统包。' : '。'), 'success');
+      } else {
+        notice('节点探测完成：' + failedCount + ' 个节点接入失败，' + conflictCount + ' 个节点存在冲突' + (synced > 0 ? '（已自动同步实测架构/系统包）。' : '；请展开上方表格查看。'), 'error');
+      }
+    } catch (error) {
+      notice('节点探测失败：' + error.message, 'error');
+    } finally { setBusy(false); }
   }
   function clearResults() {
     $('result-status').textContent = '尚未校验'; $('result-status').className = 'status-chip neutral';
@@ -782,6 +846,7 @@
     state.config = base;
     state.credentials = {harbor: '', nodes: new Map()};
     state.dirty = false;
+    clearProbeResults();
     renderSettings(); renderNodes(); renderCredentials(); clearResults();
     if (notify !== false) notice('已填充' + (kind === 'single' ? '单机模板' : '三节点 HA 模板') + '；请核对 IP、域名、密码和归档路径。', 'success');
     else notice('');
@@ -852,14 +917,137 @@
       $('execution-capability').textContent = state.capability
         ? '执行器已就绪：' + state.capability.executor.user + ' @ ' + state.capability.executor.host + '。'
         : '执行器未启用；可填写并导出 .env，但第 3 步不能直接安装。';
-      if (state.capability) await refreshJobs();
+      if (state.capability) {
+        await refreshJobs();
+        await refreshClusters();
+      } else {
+        state.clusters = []; state.expandTarget = null; renderClusters();
+      }
     } catch (error) {
       state.capability = null; $('execution-mode').textContent = '执行能力未确认'; $('execution-capability').textContent = error.message;
     } finally { state.executorLoading = false; syncButtons(); }
   }
+  async function refreshClusters() {
+    if (!state.capability) return;
+    try {
+      const response = await api('/api/execution/clusters');
+      state.clusters = response.clusters || [];
+      if (state.expandTarget) {
+        state.expandTarget = state.clusters.find((c) => c.state_dir === state.expandTarget.state_dir) || null;
+      }
+      renderClusters();
+    } catch (error) {
+      if ($('clusters-status')) $('clusters-status').textContent = '读取受管集群失败：' + error.message;
+    } finally { syncButtons(); }
+  }
+  function selectExpandCluster(cluster) {
+    state.expandTarget = cluster;
+    const section = $('worker-expand-section');
+    if (!section) return;
+    section.hidden = !cluster;
+    if (!cluster) { syncButtons(); return; }
+    $('expand-target-label').textContent = '目标：' + cluster.cluster_name + '（' + cluster.kube_version + ' · ' + cluster.state_dir + '）';
+    const existingNames = (cluster.nodes || []).map((n) => n.name);
+    const nameInput = $('expand-node-name');
+    if (nameInput && !nameInput.value.trim()) nameInput.value = logic.nextNodeName('worker', existingNames);
+    const lastIp = (cluster.nodes || []).slice(-1)[0];
+    const suggestedIp = lastIp ? logic.nextIPv4(lastIp.internal_address || lastIp.address) : '';
+    if ($('expand-node-address') && !$('expand-node-address').value.trim() && suggestedIp) $('expand-node-address').value = suggestedIp;
+    if ($('expand-node-internal') && !$('expand-node-internal').value.trim() && suggestedIp) $('expand-node-internal').value = suggestedIp;
+    const needHarbor = cluster.components !== 'k8s' && cluster.registry_mode !== 'external-harbor';
+    if ($('expand-harbor-pw-holder')) $('expand-harbor-pw-holder').hidden = !needHarbor;
+    const sshPwInput = $('expand-node-ssh-password');
+    if (sshPwInput) sshPwInput.placeholder = cluster.ssh_auth_mode === 'password' ? '必填 SSH 密码' : '已配置免密可留空';
+    syncButtons();
+  }
+  function renderClusters() {
+    const list = $('clusters-list');
+    const statusLabel = $('clusters-status');
+    if (!list) return;
+    list.replaceChildren();
+    if (!state.capability) {
+      if (statusLabel) statusLabel.textContent = '连接执行器后可查看已有集群与提交 Worker 扩容。';
+      if ($('worker-expand-section')) $('worker-expand-section').hidden = true;
+      return;
+    }
+    if (!state.clusters.length) {
+      if (statusLabel) statusLabel.textContent = '尚未发现已部署的受管集群状态目录。';
+      list.append(el('p', '暂无受管集群记录。', 'empty-state'));
+      if ($('worker-expand-section')) $('worker-expand-section').hidden = true;
+      return;
+    }
+    if (statusLabel) statusLabel.textContent = '共发现 ' + state.clusters.length + ' 个受管集群（' + state.clusters.filter((c) => c.expandable).length + ' 个可扩容）。';
+    const activeJob = state.job && ['queued', 'running', 'stop_requested'].indexOf(state.job.state) >= 0;
+    state.clusters.forEach((cluster) => {
+      const card = el('div', null, 'cluster-card');
+      const head = el('div', null, 'cluster-card-head');
+      const title = el('strong', cluster.cluster_name + ' · ' + cluster.kube_version + ' (' + cluster.endpoint_type + ')');
+      const badge = el('span', cluster.pending_expansion ? '存在未完成扩容' : ('回执：' + cluster.deployment_status), 'status-chip ' + (cluster.expandable ? 'valid' : 'neutral'));
+      head.append(title, badge);
+      const nodesSummary = (cluster.nodes || []).map((n) => n.name + '[' + (n.roles || []).join(',') + ']').join('，');
+      const wfSummary = Object.keys(cluster.workflow_stages || {}).sort().map((k) => k + ':' + cluster.workflow_stages[k]).join(' · ');
+      const meta = el('div', '范围：' + cluster.components + ' | 仓库：' + cluster.registry_mode + ' | 节点：' + nodesSummary, 'cluster-meta');
+      const wfLine = el('div', '阶段快照：' + (wfSummary || '无'), 'cluster-meta');
+      const action = el('button', '扩容 Worker', 'button secondary compact');
+      action.type = 'button';
+      action.disabled = !cluster.expandable || activeJob || state.busy;
+      action.addEventListener('click', () => selectExpandCluster(cluster));
+      head.append(action);
+      card.append(head, meta, wfLine);
+      list.append(card);
+    });
+    if (state.expandTarget) selectExpandCluster(state.expandTarget);
+  }
+  async function submitExpandWorkers() {
+    if (!state.capability || !state.expandTarget) { notice('请先选择一个可扩容的受管集群。', 'error'); return; }
+    const name = ($('expand-node-name').value || '').trim();
+    const address = ($('expand-node-address').value || '').trim();
+    const internal = ($('expand-node-internal').value || '').trim() || address;
+    const user = ($('expand-node-user').value || '').trim() || 'root';
+    const port = Number($('expand-node-port').value || 22);
+    const arch = $('expand-node-arch').value;
+    const osPkg = $('expand-node-os').value;
+    const dataPath = ($('expand-node-data').value || '').trim() || '/data';
+    const dataMode = $('expand-node-data-mode').value;
+    const sshPw = $('expand-node-ssh-password').value || '';
+    const harborPw = $('expand-node-harbor-password').value || '';
+    if (!name || !address) { notice('请填写新 Worker 节点名称和 IPv4 地址。', 'error'); return; }
+    const credentials = {};
+    if (sshPw) credentials['node:' + name] = sshPw;
+    if (state.expandTarget.components !== 'k8s' && state.expandTarget.registry_mode !== 'external-harbor') {
+      if (!harborPw) { notice('受管 Harbor 集群扩容必须填写原集群 Harbor admin 密码。', 'error'); return; }
+      credentials.harbor = harborPw;
+    }
+    const newNode = {
+      name: name, address: address, internal_address: internal, user: user, port: port,
+      arch: arch, os: osPkg, roles: ['worker'], connection: 'ssh',
+      data_path: dataPath, data_mode: dataMode, device: '', password_env: ''
+    };
+    setBusy(true); $('expand-status').textContent = '正在提交 Worker 扩容任务…';
+    try {
+      const job = await api('/api/execution/expand-workers', 'POST', {
+        request_id: crypto.randomUUID(),
+        cluster_name: state.expandTarget.cluster_name,
+        state_dir: state.expandTarget.state_dir,
+        new_nodes: [newNode],
+        credentials: credentials,
+        debug: false
+      });
+      $('expand-node-ssh-password').value = '';
+      $('expand-node-harbor-password').value = '';
+      state.job = job; state.offset = 0; state.log = '';
+      await refreshJobs(); await refreshClusters();
+      notice('Worker 扩容任务已提交；请在上方任务日志查看实时进度与台账同步。', 'success');
+    } catch (error) {
+      notice('提交 Worker 扩容失败：' + error.message, 'error');
+    } finally { $('expand-status').textContent = ''; setBusy(false); }
+  }
   function syncButtons() {
     const executable = Boolean(state.capability && !state.capability.recovery_required && masterValid() && harborRoleValid());
     const activeJob = state.job && ['queued', 'running', 'stop_requested'].indexOf(state.job.state) >= 0;
+    if ($('probe-nodes')) $('probe-nodes').disabled = state.busy || !state.capability || !state.config || !state.config.nodes.length;
+    if ($('refresh-clusters')) $('refresh-clusters').disabled = state.busy || !state.capability;
+    if ($('submit-expand-workers')) $('submit-expand-workers').disabled = state.busy || !state.capability || activeJob || !state.expandTarget || !state.expandTarget.expandable || Boolean(state.capability && state.capability.recovery_required);
     if ($('next-step-2')) $('next-step-2').disabled = state.busy || !masterValid() || !harborRoleValid();
     if ($('next-step-3')) $('next-step-3').disabled = state.busy || !masterValid() || !harborRoleValid();
     if ($('start-deploy-direct')) $('start-deploy-direct').disabled = state.busy || !executable || activeJob;
@@ -944,6 +1132,15 @@
     const failed = ['failed', 'interrupted'].indexOf(stateName) >= 0;
     const stopped = stateName === 'stopped';
     const done = stateName === 'succeeded';
+    if (requested === 'add-workers') {
+      set('prepare', 'done', '复用原集群');
+      set('harbor', 'done', '按需补推');
+      if (done) set('k8s', 'done', '扩容完成');
+      else if (failed) set('k8s', 'failed', '扩容失败');
+      else if (stopped) set('k8s', 'stopped', '已停止');
+      else if (active) set('k8s', 'running', '扩容中');
+      return;
+    }
     if (requested === 'all') {
       if (done) order.forEach((stage) => set(stage, 'done', '已完成'));
       else if (failed) order.forEach((stage) => set(stage, 'failed', '失败'));
@@ -996,7 +1193,8 @@
     });
     $('job-detail').hidden = !state.job;
     if (state.job) {
-      $('job-heading').textContent = '任务 ' + state.job.state + ' · ' + (state.job.stage || 'all');
+      const stageLabel = state.job.stage === 'add-workers' ? 'worker 扩容' : (state.job.stage || 'all');
+      $('job-heading').textContent = '任务 ' + state.job.state + ' · ' + stageLabel;
       $('job-summary').textContent = 'ID：' + state.job.id + ' · 创建：' + state.job.created_at + ' · ' + (state.job.message || '');
       $('job-observation').textContent = state.job.updated_at ? '最近更新：' + state.job.updated_at : '';
     }
@@ -1059,6 +1257,9 @@
       state.config.nodes.push(node); changed(); renderNodes();
     });
     $('toggle-password-visibility').addEventListener('click', () => { state.showPasswords = !state.showPasswords; renderNodes(); renderCredentials(); });
+    $('probe-nodes').addEventListener('click', probeNodes);
+    $('refresh-clusters').addEventListener('click', refreshClusters);
+    $('submit-expand-workers').addEventListener('click', submitExpandWorkers);
     $('validate-config').addEventListener('click', () => validateCurrent('validate'));
     $('show-plan').addEventListener('click', () => validateCurrent('plan'));
     $('next-step-2').addEventListener('click', () => goStep(2));

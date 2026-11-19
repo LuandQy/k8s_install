@@ -105,6 +105,19 @@ class WorkbenchUIContractTests(unittest.TestCase):
         self.assertIn('history.replaceState', APP)
         self.assertIn('beforeunload', APP)
 
+    def test_node_probe_and_managed_clusters_worker_expansion_ui_exist(self):
+        self.assertIn('id="probe-nodes"', HTML)
+        self.assertIn('id="probe-results"', HTML)
+        self.assertIn('id="managed-clusters-panel"', HTML)
+        self.assertIn('id="refresh-clusters"', HTML)
+        self.assertIn('id="submit-expand-workers"', HTML)
+        self.assertIn('/api/execution/probe-nodes', APP)
+        self.assertIn('/api/execution/clusters', APP)
+        self.assertIn('/api/execution/expand-workers', APP)
+        self.assertIn('probeNodes', APP)
+        self.assertIn('refreshClusters', APP)
+        self.assertIn('submitExpandWorkers', APP)
+
 
 if __name__ == '__main__':
     unittest.main()

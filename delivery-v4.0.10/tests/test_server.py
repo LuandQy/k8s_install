@@ -111,6 +111,12 @@ class FakeExecution:
                     'data': base64.b64encode(b'PK-ledger-test').decode('ascii')}
         if operation == 'artifact_sha256':
             return {'sha256': 'a' * 64, 'bytes': 12, 'path': body['path']}
+        if operation == 'probe_nodes':
+            return {'ok': True, 'exit_code': 0, 'nodes': [{'name': 'node1', 'status': 'passed', 'arch': 'amd64', 'os_package': 'ubuntu-24.04-debs', 'conflicts': []}], 'global_errors': []}
+        if operation == 'clusters':
+            return {'clusters': [{'cluster_name': 'prod', 'expandable': True}]}
+        if operation == 'expand_workers':
+            return {'id': body['request_id'], 'state': 'queued', 'stage': 'add-workers'}
         return {'enabled': True}
 
 
@@ -218,6 +224,21 @@ class ExecutionSubmitContractTests(HTTPCase):
                              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             self.assertIn('environment-ledger.xlsx', response.headers.get('Content-Disposition', ''))
             self.assertEqual(response.read(), b'PK-ledger-test')
+
+    def test_probe_clusters_and_expand_workers_routes(self):
+        config = config_model.default_config()
+        status, payload = self.call('/api/execution/probe-nodes', 'POST', {'config': config, 'credentials': {}})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload['ok'])
+        status, payload = self.call('/api/execution/clusters')
+        self.assertEqual(status, 200)
+        self.assertEqual(payload['clusters'][0]['cluster_name'], 'prod')
+        status, payload = self.call('/api/execution/expand-workers', 'POST', {
+            'request_id': str(uuid.uuid4()), 'cluster_name': 'prod',
+            'new_nodes': [config['nodes'][0]], 'credentials': {}, 'debug': False,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(payload['stage'], 'add-workers')
 
 
 if __name__ == '__main__':

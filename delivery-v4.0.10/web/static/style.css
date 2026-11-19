@@ -209,6 +209,19 @@ dialog#help-dialog::backdrop{background:rgba(18,42,48,.45)}
 .stage-badge.failed{border-color:#d9a39a;background:#fff3f0;color:#9b4438}
 .stage-badge.stopped{border-color:#c6b58d;background:#fbf7ea;color:#7c6424}
 .stage-badge.pending{opacity:.8}
+.probe-results{margin:8px 0 10px;border:1px solid #cfe1e4;border-radius:8px;background:#fafdfd;padding:10px 12px;overflow-x:auto}
+.probe-table{width:100%;border-collapse:collapse;font-size:12px}
+.probe-table th,.probe-table td{padding:6px 8px;border-bottom:1px solid #e5eef0;text-align:left;vertical-align:top}
+.probe-table th{color:#355d6b;font-weight:600;background:#f3f9f8}
+.managed-clusters-panel{margin-top:16px}
+.managed-clusters-body{padding:0 18px 18px}
+.clusters-toolbar{padding:12px 0}
+.clusters-list{display:grid;gap:10px;margin:4px 0 12px}
+.cluster-card{border:1px solid #d5e4e7;border-radius:8px;padding:12px 14px;background:#fbfdfd;display:grid;gap:6px}
+.cluster-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.cluster-meta{font-size:12px;color:#54717d}
+.worker-expand-section{border-top:1px dashed #cddce0;margin-top:12px;padding-top:14px}
+.expand-fields{padding:10px 0}
 @media(max-width:1050px){#basic-settings .field-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){#basic-settings .field-grid{grid-template-columns:1fr}.node-matrix{min-width:980px}}
 

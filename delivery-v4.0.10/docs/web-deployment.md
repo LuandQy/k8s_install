@@ -13,7 +13,7 @@
 | CLI 交互式首装、向导、env 复用 | `sudo bash deploy.sh` |
 | 旧集群维护、失败恢复、扩容、重建、清理、需要交互格式化磁盘 | 使用原部署目录和 CLI，见 [维护手册](operations.md) |
 
-Web 执行固定为 `deploy.sh all --env <执行器生成配置> --non-interactive`。表单的 COMPONENTS 决定整套、仅 Harbor 或仅 K8s 范围；流程包含适用的接入、基础准备、依赖、基础服务、仓库、镜像、K8s、功能验收和台账阶段。数据策略仅接受 native/existing；不提供任意命令、磁盘格式化、reset、redeploy、resume 或扩容接口。HA Harbor 在页面仅开放配置、校验和只读计划，提交执行会被拒绝；须完成 VIP、token 共享与 VRID 实机验收后由 CLI 执行。
+Web 执行固定为 `deploy.sh all --env <执行器生成配置> --non-interactive`（以及通过“已有受管集群状态与 Worker 扩容”面板提交的 `deploy.sh add-workers --state-dir <目标> --nodes <新节点清单> -y`）。表单的 COMPONENTS 决定整套、仅 Harbor 或仅 K8s 范围；流程包含适用的接入、基础准备、依赖、基础服务、仓库、镜像、K8s、功能验收和台账阶段。若任务仅在 `access` 接入阶段失败且尚未对节点执行任何存储或安装写入（不存在 `prepare-started` 或部署回执），页面允许管理员修正节点 IP、端口或密码后原地重新提交 `prepare` 或 `all`。数据策略仅接受 native/existing；仍不提供任意命令、磁盘格式化、reset、redeploy 或 resume 接口。HA Harbor 在页面仅开放配置、校验和只读计划，提交执行会被拒绝；须完成 VIP、token 共享与 VRID 实机验收后由 CLI 执行。
 
 ## 管理员启用执行
 
@@ -113,6 +113,6 @@ bash deploy.sh web \
 
 ## 接口与验证边界
 
-新增本机任务接口为 GET `/api/execution`、POST `/api/jobs/preview`、POST `/api/jobs`、GET `/api/jobs`、GET `/api/jobs/{id}`、GET `/api/jobs/{id}/logs?offset=N` 与 POST `/api/jobs/{id}/stop`。提交体为 `{request_id, plan_id, config_sha256, acknowledged, credentials, debug}`，其中 `acknowledged` 必须为 `true`，`debug` 为布尔值；不再有 `confirmation` 文本字段。它们沿用令牌、Host 和同源 Origin 校验。默认未配置执行器时任务接口不可用；既有 validate/plan 的 `execution_authorized=false` 与 `live_checks_performed=false` 不变。
+新增本机任务及集群接口为 GET `/api/execution`、POST `/api/execution/probe-nodes`、GET `/api/execution/clusters`、POST `/api/execution/expand-workers`、POST `/api/jobs/preview`、POST `/api/jobs`、GET `/api/jobs`、GET `/api/jobs/{id}`、GET `/api/jobs/{id}/logs?offset=N` 与 POST `/api/jobs/{id}/stop`。提交体为 `{request_id, plan_id, config_sha256, acknowledged, credentials, debug}`，其中 `acknowledged` 必须为 `true`，`debug` 为布尔值；不再有 `confirmation` 文本字段。它们沿用令牌、Host 和同源 Origin 校验。默认未配置执行器时任务接口不可用；既有 validate/plan 的 `execution_authorized=false` 与 `live_checks_performed=false` 不变。
 
 本修订的 Web 执行通过隔离配置、临时目录、HTTP 契约测试与假后端回归验证；没有因此新增真实节点部署、SSH 公钥分发、系统重启或 HA 实机验收结论。历史 CLI 实机结果也不能直接替代本版 Web 完整实机验收。接收方应在获批的新环境独立完成两种入口的现场验收。测试记录由交付方内部保管，公共包只保留程序和用户手册。

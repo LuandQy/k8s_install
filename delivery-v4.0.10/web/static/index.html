@@ -50,7 +50,8 @@
           <button id="import-env" class="button quiet compact" type="button">导入 .env</button>
           <input id="import-env-file" type="file" accept=".env,text/plain" hidden>
         </div>
-          <div class="section-heading nodes-heading"><h2>节点矩阵</h2><div class="node-heading-actions"><button id="toggle-password-visibility" class="button secondary compact" type="button" aria-pressed="false">显示密码</button><button id="add-node" class="button secondary compact" type="button">添加节点</button></div></div>
+          <div class="section-heading nodes-heading"><h2>节点矩阵</h2><div class="node-heading-actions"><button id="probe-nodes" class="button secondary compact" type="button" disabled title="连接执行器后可实时探测节点 SSH、硬件架构与系统">探测节点连通性</button><button id="toggle-password-visibility" class="button secondary compact" type="button" aria-pressed="false">显示密码</button><button id="add-node" class="button secondary compact" type="button">添加节点</button></div></div>
+          <div id="probe-results" class="probe-results" hidden></div>
           <p id="master-count-error" class="validation-error" hidden role="alert"></p>
           <p id="harbor-count-error" class="validation-error" hidden role="alert"></p>
           <div id="nodes-list" class="nodes-list"></div>
@@ -93,6 +94,36 @@
           <div id="job-summary"></div>
           <div id="job-log" class="job-log" tabindex="0" role="log" aria-label="部署日志"></div>
         </section>
+        <details id="managed-clusters-panel" class="config-group managed-clusters-panel">
+          <summary><span>已有受管集群状态与 Worker 扩容</span><span class="group-count">需连接执行器</span></summary>
+          <div class="managed-clusters-body">
+            <div class="toolbar clusters-toolbar">
+              <button id="refresh-clusters" class="button secondary compact" type="button" disabled>刷新受管集群状态</button>
+              <span id="clusters-status" class="small-label">连接执行器后可查看已有集群与提交 Worker 扩容。</span>
+            </div>
+            <div id="clusters-list" class="clusters-list"></div>
+            <section id="worker-expand-section" class="worker-expand-section" hidden>
+              <div class="section-heading"><h3>向已部署集群扩容 Worker</h3><span id="expand-target-label" class="small-label"></span></div>
+              <div class="field-grid expand-fields">
+                <div class="field"><label for="expand-node-name">新节点名称</label><input id="expand-node-name" type="text" placeholder="worker2" autocomplete="off"></div>
+                <div class="field"><label for="expand-node-address">SSH 连接 IPv4</label><input id="expand-node-address" type="text" placeholder="192.0.2.31" autocomplete="off"></div>
+                <div class="field"><label for="expand-node-internal">内部通信 IPv4</label><input id="expand-node-internal" type="text" placeholder="192.0.2.31" autocomplete="off"></div>
+                <div class="field"><label for="expand-node-user">SSH 用户</label><input id="expand-node-user" type="text" value="root" autocomplete="off"></div>
+                <div class="field"><label for="expand-node-port">SSH 端口</label><input id="expand-node-port" type="number" value="22" min="1" max="65535"></div>
+                <div class="field"><label for="expand-node-arch">架构</label><select id="expand-node-arch"><option value="amd64">amd64</option><option value="arm64">arm64</option></select></div>
+                <div class="field"><label for="expand-node-os">系统依赖包</label><select id="expand-node-os"><option value="ubuntu-24.04-debs">Ubuntu 24.04 (ubuntu-24.04-debs)</option><option value="ubuntu-22.04-debs">Ubuntu 22.04 (ubuntu-22.04-debs)</option><option value="kylin-v10SP3-2403-rpms">Kylin V10 SP3 (kylin-v10SP3-2403-rpms)</option></select></div>
+                <div class="field"><label for="expand-node-data">数据根目录</label><input id="expand-node-data" type="text" value="/data" autocomplete="off"></div>
+                <div class="field"><label for="expand-node-data-mode">数据策略</label><select id="expand-node-data-mode"><option value="native">native（原生目录）</option><option value="existing">existing（已挂载数据盘）</option></select></div>
+                <div class="field"><label for="expand-node-ssh-password">节点 SSH 密码（按认证模式）</label><input id="expand-node-ssh-password" type="password" autocomplete="new-password" placeholder="免密可留空"></div>
+                <div class="field" id="expand-harbor-pw-holder"><label for="expand-node-harbor-password">原集群 Harbor admin 密码</label><input id="expand-node-harbor-password" type="password" autocomplete="new-password" placeholder="受管 Harbor 扩容必填"></div>
+              </div>
+              <div class="execution-actions">
+                <button id="submit-expand-workers" class="button primary" type="button" disabled>提交 Worker 扩容</button>
+                <span id="expand-status" class="small-label"></span>
+              </div>
+            </section>
+          </div>
+        </details>
         <div class="wizard-actions"><button id="back-step-2" class="button quiet" type="button">← 返回校验</button></div>
       </div>
     </section>

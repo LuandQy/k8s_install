@@ -110,6 +110,44 @@ class StateMachineContractTests(unittest.TestCase):
         steps = [argv[argv.index('--step') + 1] for argv in calls]
         self.assertEqual(steps, ['access', 'prepare', 'deps', 'services-init', 'services-verify'])
 
+    def test_web_runner_runs_add_workers_expansion(self):
+        class Stream:
+            def __init__(self):
+                self.file = tempfile.TemporaryFile()
+                self.file.write(b'expanded\n')
+                self.file.seek(0)
+            def fileno(self):
+                return self.file.fileno()
+        class Child:
+            def __init__(self):
+                self.stdout = Stream()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                self.stdout.file.close()
+                return False
+            def wait(self):
+                return 0
+        calls = []
+        class Popen:
+            def __new__(cls, argv, **kwargs):
+                calls.append((argv, kwargs))
+                return Child()
+        tmp = Path(tempfile.mkdtemp(prefix='rise-expand-'))
+        workers = tmp / 'workers.env'
+        workers.write_text("NEW_NODES='w2|192.0.2.2|192.0.2.2|root|22|amd64|ubuntu-24.04-debs|worker|ssh|/data|native||'\n", encoding='utf-8')
+        job = {'stage': 'add-workers', 'state_dir': str(tmp / 'state'), 'workers_path': str(workers), 'debug': True}
+        with mock.patch.object(execution.subprocess, 'Popen', Popen):
+            rc = execution.CLIRunner(str(ROOT))(job, {'PATH': '/usr/bin:/bin'}, lambda _data: None)
+        self.assertEqual(rc, 0)
+        argv, kwargs = calls[0]
+        self.assertIn('add-workers', argv)
+        self.assertIn('--state-dir', argv)
+        self.assertIn('--nodes', argv)
+        self.assertIn('-y', argv)
+        self.assertNotIn('--debug', argv)
+        self.assertEqual(kwargs['env']['RISE_LOG_LEVEL'], 'debug')
+
 
 if __name__ == '__main__':
     unittest.main()

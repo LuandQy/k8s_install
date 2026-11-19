@@ -14,7 +14,7 @@ import time
 
 MAX_REQUEST = 256 * 1024
 MAX_RESPONSE = 1024 * 1024
-OPERATIONS = frozenset(('capabilities', 'preview', 'submit', 'list', 'get', 'logs', 'stop', 'ledger', 'artifact_sha256'))
+OPERATIONS = frozenset(('capabilities', 'preview', 'submit', 'list', 'get', 'logs', 'stop', 'ledger', 'artifact_sha256', 'probe_nodes', 'clusters', 'expand_workers'))
 UNCONFIRMED = '无法确认执行器结果；若已提交部署，请按原任务 ID 核对，勿重复创建任务。'
 
 

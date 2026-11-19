@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / 'web'))
 import artifact_digest  # noqa: E402
 import config_model  # noqa: E402
 import execution  # noqa: E402
+import server  # noqa: E402
 
 
 class ConfigModelTests(unittest.TestCase):
@@ -437,6 +438,230 @@ class ExecutionPreviewTests(unittest.TestCase):
             self.assertIn('省略', joined)
         finally:
             service.close()
+
+    def test_harbor_key_requires_owner_only_permissions(self):
+        service, project = make_service(self.tmp)
+        try:
+            config = self.config(project)
+            ca = Path(self.tmp) / 'ca.pem'
+            cert = Path(self.tmp) / 'cert.pem'
+            key = Path(self.tmp) / 'key.pem'
+            for path in (ca, cert, key):
+                path.write_text('PEM\n', encoding='utf-8')
+            ca.chmod(0o644)
+            cert.chmod(0o644)
+            key.chmod(0o644)
+            config['settings']['COMPONENTS'] = 'k8s'
+            config['settings']['HARBOR_CA'] = str(ca)
+            config['settings']['HARBOR_CERT'] = str(cert)
+            config['settings']['HARBOR_KEY'] = str(key)
+            with self.assertRaises(execution.ExecutionError) as caught:
+                service._inputs(config)
+            self.assertEqual(caught.exception.code, 'untrusted_key')
+            key.chmod(0o600)
+            service._inputs(config)
+        finally:
+            service.close()
+
+    def test_binding_fallback_when_binding_file_corrupted(self):
+        service, project = make_service(self.tmp)
+        try:
+            config = self.config(project)
+            preview = service.preview(config)
+            req_id = str(uuid.uuid4())
+            body = {
+                'request_id': req_id, 'plan_id': preview['plan_id'],
+                'config_sha256': preview['config_sha256'], 'acknowledged': True,
+                'credentials': {'harbor': 'Abcdef123456'}, 'debug': False,
+            }
+            job = service.submit(body)
+            service.threads[job['id']].join(timeout=10)
+            (service.jobs_dir / req_id / 'binding.json').write_text('{corrupt-json', encoding='utf-8')
+            replayed = service.submit(body)
+            self.assertEqual(replayed['id'], req_id)
+            bad_body = dict(body, debug=True)
+            with self.assertRaises(execution.ExecutionError) as conflict:
+                service.submit(bad_body)
+            self.assertEqual(conflict.exception.code, 'idempotency_conflict')
+        finally:
+            service.close()
+
+    def test_zero_mutation_access_failure_allows_in_place_retry_with_corrected_config(self):
+        attempts = []
+
+        def flaky_access_runner(job, env, emit):
+            attempts.append(job['config_path'])
+            if len(attempts) == 1:
+                wf = Path(job['state_dir'] + '.workflow')
+                wf.mkdir(parents=True, exist_ok=True)
+                (wf / 'access.json').write_text('{"stage":"access","status":"failed"}', encoding='utf-8')
+                return 1
+            return 0
+
+        project = Path(self.tmp) / 'project'
+        (project / 'artifact').mkdir(parents=True)
+        (project / 'deploy.sh').write_text('#!/usr/bin/env bash\n', encoding='utf-8')
+        (project / 'artifact' / 'kubekey-artifact.tgz').write_bytes(b'archive')
+        service = execution.ExecutionService(
+            project_root=str(project), data_dir=str(Path(self.tmp) / 'executor-data'),
+            work_root=str(Path(self.tmp) / 'executor-work'), allowed_uid=os.getuid(),
+            preview_cli=FakeCLI(), runner=flaky_access_runner, trusted_uid=os.getuid())
+        try:
+            config = self.config(project)
+            p1 = service.preview(config, 'prepare')
+            j1 = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': p1['plan_id'],
+                'config_sha256': p1['config_sha256'], 'acknowledged': True,
+                'credentials': {}, 'debug': False, 'stage': 'prepare',
+            })
+            service.threads[j1['id']].join(timeout=10)
+            self.assertEqual(service.jobs[j1['id']]['state'], 'failed')
+
+            # Fix node IP after zero-mutation access failure and retry prepare directly
+            corrected = self.config(project)
+            corrected['nodes'][0]['address'] = '192.0.2.99'
+            p2 = service.preview(corrected, 'prepare')
+            j2 = service.submit({
+                'request_id': str(uuid.uuid4()), 'plan_id': p2['plan_id'],
+                'config_sha256': p2['config_sha256'], 'acknowledged': True,
+                'credentials': {}, 'debug': False, 'stage': 'prepare',
+            })
+            service.threads[j2['id']].join(timeout=10)
+            self.assertEqual(service.jobs[j2['id']]['state'], 'succeeded')
+
+            # Once prepare-started exists, mutating config must be blocked on prepare/all
+            wf_dir = Path(j2['state_dir'] + '.workflow')
+            wf_dir.mkdir(parents=True, exist_ok=True)
+            (wf_dir / 'prepare-started').write_text('started\n', encoding='utf-8')
+            mutated = self.config(project)
+            mutated['nodes'][0]['address'] = '192.0.2.88'
+            p3 = service.preview(mutated, 'prepare')
+            with self.assertRaises(execution.ExecutionError) as err:
+                service.submit({
+                    'request_id': str(uuid.uuid4()), 'plan_id': p3['plan_id'],
+                    'config_sha256': p3['config_sha256'], 'acknowledged': True,
+                    'credentials': {}, 'debug': False, 'stage': 'prepare',
+                })
+            self.assertIn(err.exception.code, ('config_changed_between_stages', 'cluster_claimed'))
+        finally:
+            service.close()
+
+    def test_probe_nodes_collects_arch_os_and_leaves_no_claim(self):
+        captured = {}
+
+        def fake_probe_runner(env_path, run_dir, env):
+            captured['env_text'] = env_path.read_text(encoding='utf-8')
+            captured['bootstrap'] = env.get('BOOTSTRAP', '')
+            (run_dir / 'reports' / 'node1').mkdir(parents=True)
+            (run_dir / 'reports' / 'node1' / 'identity.log').write_text(
+                'RISE_OS=ubuntu\nRISE_OS_VERSION=22.04\nRISE_ARCH=aarch64\n', encoding='utf-8')
+            (run_dir / 'checks.json').write_text(json.dumps({
+                'schema': 1, 'exit_code': 0, 'global_errors': [],
+                'nodes': [{'node': 'node1', 'status': 'passed', 'error_summary': ''}],
+            }), encoding='utf-8')
+            (run_dir / 'summary.json').write_text(json.dumps([
+                {'name': 'node1', 'ip': '192.0.2.10', 'arch': 'arm64',
+                 'hostname': 'node1-box', 'conflicts': []},
+            ]), encoding='utf-8')
+            return 0, ''
+
+        project = Path(self.tmp) / 'project'
+        (project / 'artifact').mkdir(parents=True)
+        (project / 'deploy.sh').write_text('#!/usr/bin/env bash\n', encoding='utf-8')
+        (project / 'artifact' / 'kubekey-artifact.tgz').write_bytes(b'archive')
+        service = execution.ExecutionService(
+            project_root=str(project), data_dir=str(Path(self.tmp) / 'executor-data'),
+            work_root=str(Path(self.tmp) / 'executor-work'), allowed_uid=os.getuid(),
+            preview_cli=FakeCLI(), runner=lambda *a: 0, probe_runner=fake_probe_runner, trusted_uid=os.getuid())
+        try:
+            config = self.config(project)
+            config['settings']['ARTIFACT_FILE'] = ''
+            result = service.probe_nodes(config)
+            self.assertTrue(result['ok'])
+            self.assertEqual(result['nodes'][0]['arch'], 'arm64')
+            self.assertEqual(result['nodes'][0]['os_package'], 'ubuntu-22.04-debs')
+            self.assertEqual(result['nodes'][0]['hostname'], 'node1-box')
+            self.assertEqual(list(service.claims_dir.iterdir()), [])
+        finally:
+            service.close()
+
+    def test_clusters_and_expand_workers_submission(self):
+        captured_jobs = []
+
+        def expand_runner(job, env, emit):
+            captured_jobs.append((job, dict(env)))
+            emit(b'[web] stage add-workers\n')
+            return 0
+
+        project = Path(self.tmp) / 'project'
+        (project / 'artifact').mkdir(parents=True)
+        (project / 'deploy.sh').write_text('#!/usr/bin/env bash\n', encoding='utf-8')
+        (project / 'artifact' / 'kubekey-artifact.tgz').write_bytes(b'archive')
+        service = execution.ExecutionService(
+            project_root=str(project), data_dir=str(Path(self.tmp) / 'executor-data'),
+            work_root=str(Path(self.tmp) / 'executor-work'), allowed_uid=os.getuid(),
+            preview_cli=FakeCLI(), runner=expand_runner, trusted_uid=os.getuid())
+        try:
+            cfg = self.config(project)
+            state_dir = service.cluster_dir / 'prod-cluster' / 'state'
+            receipt_dir = service.cluster_dir / 'prod-cluster' / 'state.deployment'
+            wf_dir = service.cluster_dir / 'prod-cluster' / 'state.workflow'
+            state_dir.mkdir(parents=True)
+            receipt_dir.mkdir(parents=True)
+            wf_dir.mkdir(parents=True)
+            cfg['settings']['CLUSTER_NAME'] = 'prod-cluster'
+            (state_dir / 'cluster.env').write_text(config_model.export_env(cfg), encoding='utf-8')
+            (receipt_dir / 'status').write_text('complete\n', encoding='utf-8')
+            (wf_dir / 'k8s-install.json').write_text('{"stage":"k8s-install","status":"succeeded"}', encoding='utf-8')
+
+            listing = service.clusters()
+            self.assertEqual(len(listing['clusters']), 1)
+            item = listing['clusters'][0]
+            self.assertEqual(item['cluster_name'], 'prod-cluster')
+            self.assertTrue(item['expandable'])
+            self.assertEqual(item['workflow_stages'].get('k8s-install'), 'succeeded')
+
+            bad_worker = dict(cfg['nodes'][0], name='worker2', address='192.0.2.30', internal_address='192.0.2.30', roles=['control_plane', 'worker'])
+            with self.assertRaises(execution.ExecutionError) as role_err:
+                service.expand_workers({
+                    'request_id': str(uuid.uuid4()), 'cluster_name': 'prod-cluster',
+                    'state_dir': str(state_dir), 'new_nodes': [bad_worker],
+                    'credentials': {'harbor': 'Abcdef123456'}, 'debug': False,
+                })
+            self.assertEqual(role_err.exception.code, 'invalid_worker_roles')
+
+            dup_worker = dict(cfg['nodes'][0], roles=['worker'])
+            with self.assertRaises(execution.ExecutionError) as dup_err:
+                service.expand_workers({
+                    'request_id': str(uuid.uuid4()), 'cluster_name': 'prod-cluster',
+                    'state_dir': str(state_dir), 'new_nodes': [dup_worker],
+                    'credentials': {'harbor': 'Abcdef123456'}, 'debug': False,
+                })
+            self.assertEqual(dup_err.exception.code, 'duplicate_node')
+
+            ok_worker = dict(cfg['nodes'][0], name='worker2', address='192.0.2.31',
+                             internal_address='192.0.2.31', roles=['worker'], connection='ssh')
+            job = service.expand_workers({
+                'request_id': str(uuid.uuid4()), 'cluster_name': 'prod-cluster',
+                'state_dir': str(state_dir), 'new_nodes': [ok_worker],
+                'credentials': {'harbor': 'Abcdef123456', 'node:worker2': 'WorkerPass123!'}, 'debug': True,
+            })
+            service.threads[job['id']].join(timeout=10)
+            self.assertEqual(service.jobs[job['id']]['state'], 'succeeded')
+            self.assertEqual(job['stage'], 'add-workers')
+            self.assertTrue(Path(job['workers_path']).is_file())
+            self.assertIn('NEW_NODES=', Path(job['workers_path']).read_text(encoding='utf-8'))
+            self.assertEqual(len(captured_jobs), 1)
+            self.assertEqual(captured_jobs[0][1]['HARBOR_PASSWORD'], 'Abcdef123456')
+        finally:
+            service.close()
+
+    def test_ssh_tunnel_hint_formats_command_when_ssh_connection_present(self):
+        self.assertEqual(server.ssh_tunnel_hint(8765, env={}), '')
+        hint = server.ssh_tunnel_hint(8765, env={'SSH_CONNECTION': '10.0.0.5 52122 192.168.10.20 22'}, user='ops')
+        self.assertIn('ssh -N -L 8765:127.0.0.1:8765 ops@192.168.10.20', hint)
+        custom_port = server.ssh_tunnel_hint(8765, env={'SSH_CONNECTION': '10.0.0.5 52122 192.168.10.20 2222'}, user='ops')
+        self.assertIn('ssh -N -p 2222 -L 8765:127.0.0.1:8765 ops@192.168.10.20', custom_port)
 
 
 if __name__ == '__main__':
