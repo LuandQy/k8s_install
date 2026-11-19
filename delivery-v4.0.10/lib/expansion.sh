@@ -10,7 +10,7 @@ expansion_check_receipt() {
     cmp -s "$STATE_DIR/cluster.env" "$RECEIPT/cluster.env" || die '集群状态与部署记录不一致，需先人工核对历史扩容记录'
     [ "$(resume_project_digest)" = "$(cat "$RECEIPT/project.sha256")" ] || die 'KubeKey 项目变化，拒绝扩容'
     DEPLOYMENT_ID=$(cat "$RECEIPT/id")
-    for key in HARBOR_CA HARBOR_CERT HARBOR_KEY; do
+    for key in HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY; do
         [ ! -f "$RECEIPT/$key.path" ] || printf -v "$key" '%s' "$(cat "$RECEIPT/$key.path")"
     done
     resume_pki > "$RUN_DIR/expansion-pki.sha256"

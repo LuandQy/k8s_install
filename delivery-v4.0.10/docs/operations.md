@@ -77,7 +77,7 @@ sudo bash deploy.sh redeploy --env "$CONFIG" --preview
 
 ## worker 扩容
 
-使用匹配原回执的项目，新增清单只包含 worker；节点名称/IP/身份不能与原集群重复。配置来源须可信，因为新增节点 env 也由 Bash source。
+使用匹配原回执的项目，新增清单只包含 worker；节点名称/IP/身份不能与原集群重复。新增节点清单可从 `examples/workers-new.env` 复制修改，或通过 `./deploy.sh cli` 菜单“4. 添加 worker”交互生成。配置来源须可信，因为新增节点 env 也由 Bash source。
 
 ```bash
 sudo bash deploy.sh add-workers --state-dir /srv/rise-state/site-a --nodes /srv/rise-config/workers-new.env --preview

@@ -1,5 +1,5 @@
 2ab075fd19807a89a11c15cbd4c33f30847241e47586ee1238a6852d226b5fb7  ./README.md
-4f68a91b98c603efcbb34094e183ba5a04f588b274a1406db20717faa1d600e0  ./SOURCE_SHA256SUMS
+8ba3079019f6ab9691026fbd115a0c01834f3a294da16f115a349813bc1a3f27  ./SOURCE_SHA256SUMS
 317b93fbbbb740cd12c60f28610d5ef8bb2c95a17394f42b613a011f8c507221  ./artifact/SHA256SUMS
 f807559a4175f5ff49102ad8e11f689da744beefe11d772f4afa331fcd146f0c  ./artifact/kubekey-artifact.tgz
 e954a0136da891e6f45815dc3fbcd0099654e9609136e1d55e0b0a1f78e1ce3f  ./artifact/manifests.yaml
@@ -27,7 +27,7 @@ d30683d619609caa5e45649a127d25a70c87d7cc4bd528ae9ccd0bc52da5ec66  ./docs/deploy-
 f3d60094904dcd15c5e8db56d7726c86919543b898afc28b679a7acf648694f0  ./docs/kubekey-4.0.10.md
 1617d202622c124926da2ae841296c73f4f4a6db9453890268698e89c50f7442  ./docs/multinode-deployment.md
 982bc917d323650acfe8da61f6c47fa17bad4b9e9ea95a6c12123c41ef47eac2  ./docs/offline-package-build.md
-80f59e1b9f4e794244ebdb9c9f4d75e73df4d3fd63d43ee3122af234aa66f228  ./docs/operations.md
+6790f9afe813f3048e8bd09815635213ef435bde79554b51b3e9aa0424299fab  ./docs/operations.md
 8cab1e56a46283d68a996576f1af248af5875367e06d132167800de749e6b9af  ./docs/optimization-backlog.md
 f8870c3652d3515fdb46a181f1699eeca37e39cd0f41efeb8eba78e4c328d115  ./docs/quick-start.md
 c026e7de37fcd9fdad99956f9fc79c1bd08c6b8ec5b7952e9dd162eee93f7466  ./docs/staged-install.md
@@ -43,6 +43,7 @@ e7b00be419e57be759fa9e4f34adfd98d6ad5164e097ee0cbcd653bb6001df2f  ./examples/har
 b72928be4267e57fbf8053efbfea24ce178e45df6c7fde21a8b03dc4b60f43e5  ./examples/single-master.env
 7b938508584ed3455fef2028d8712b62e815d33d9c8b21158fe4566a9dd9e11d  ./examples/three-master-dedicated.env
 14e6d7d43b735057804a115b7bad8bd854c7d7431f321bdea9553b4823dbf39c  ./examples/three-master.env
+b3509a7402e0556c53348f40bf00adac41b163e512cd2040648405ec8f2fbb67  ./examples/workers-new.env
 d7f4a8297fe4e914b7d85563c37bf27c03a868d1126f86ae4c5edc08c0a028cb  ./init.sh
 dfc401de1176d4769cb8832d034264a1d168e9042bbddef7a394735787bcd590  ./inventory-base.yaml
 fe7dae17a64fceb4af1b05ef5a4ab7f3894a766472293cc14a799b37d872cd39  ./inventory.yaml.example
@@ -64,7 +65,7 @@ a09fb9d64e1f4e5c1db51153b7cb5bb78b77a2d24ac20d5d36a44f13f61f5e63  ./kk-project/d
 2b48fd31824ee8018c17cbab94ba89e8a26a592e0843f9094e3dbb46b551621b  ./kk-project/defaults/inventory/localhost.yaml
 75fb0892246d4038f9fdbfc691b8843d21351376b1b609b8289f88d7b25c2878  ./kk-project/fs.go
 6c930937ec0d175b29dc673693c3cde948f9652471b3116725089845604df016  ./kk-project/playbooks/add_nodes.yaml
-706fc15fa94175a5d7069ff323d736a6002605e445d296b661c9fb73703b6364  ./kk-project/playbooks/add_workers.yaml
+1b0168598f9e2c992b8b69583019325daf01e74d9654f92f191b6dbe110d3a27  ./kk-project/playbooks/add_workers.yaml
 2e3ff4228a1f9769d2ee15108e2f8e3d086a2ab7dd5b2af610d604d92d14230a  ./kk-project/playbooks/artifact_export.yaml
 795f3ae5ccc91d503d8c063f499539f997b5564bf922bd993a0c2358d581bfbf  ./kk-project/playbooks/artifact_images.yaml
 f744eefcba960969f5689e8bee5c1482851e2ff4b13f044b51eee73996301b5c  ./kk-project/playbooks/certs_renew.yaml
@@ -310,7 +311,7 @@ acd779b32478f7a60b41e95279315791e55afe97f3f8245af78c843bcc8d20d5  ./lib/componen
 4c295c4ab54c5ab38f8a9f836ce813c458071c280c234c2ba816b6c2016260f6  ./lib/config-output.sh
 ff30f18118ef85e8a8ad9d7e771d961fe55f6566e92a5b5f46f22c881730d99a  ./lib/config.sh
 aa05bd3eebc38180ba6bf1d5a7f299011ea55017281e1e5879c55ff42ef6e9bf  ./lib/disks.sh
-8a7e87d548bf9a5c971899c655230dd4511f7583bf4cfd5da39d75560d2208ae  ./lib/expansion.sh
+5f9503f9cf22fcac9c70447e020e1bf7d294691e5e2bc4c7fc084ed0de56c57d  ./lib/expansion.sh
 5b6b432bd853bae79395cf62db13423ceb79b28e5ca9607571f07ca220d55a47  ./lib/harbor.sh
 10d49d021a011a8b7886ecd05104e953a0952bd1cdad044a602e7eacf102266b  ./lib/images.sh
 ae66a2888d7d2548a53fcf1e04a5c0f6c4772ae643bd5975c6b148e7ec15ceac  ./lib/kk-binaries.sha256
@@ -372,10 +373,10 @@ a970169844f4aea5282310b9539fbcdff5aa6a2c4f4416067eb09e65b3715a7a  ./node_scripts
 94d2433e1cb5e8d8e262d9330e613f523a3c044c2d47ac6de7115db03af11479  ./package.sh
 a60f2af1e09cbda281ac8d532f2b502112f781091e19437cbc48f784bd8c85dc  ./redeploy.sh
 4c361e2254b2f97e6acd25c650291fadf63a0457b541ef76d829d66643634d6b  ./reset.sh
-5f831d04f1042bc04836528ad8576adb0132bc6227ce71fb83f502570c6c911f  ./scale-worker.sh
+a9ae6bd1ade15dad74a6cc5f3411cfc6c1f7af56716f4ce0f407a3fd9eb14883  ./scale-worker.sh
 d20349df497527e94e2de2b67cb25ad5969abe77569a23c92a760c0fd74e35e7  ./tests/test_bootstrap_router.py
 84b0183e50209a7aa288a041b9ac16aa61c6393f61e6cc00e791ddebb3ca249e  ./tests/test_config_defaults.py
-8fc2d0fed7105bb6c930abe87f83b282487767f86bf30eb067ef565db8cbc598  ./tests/test_ha_and_nerdctl.py
+11a5a27c05dbb97695b534ffdebc8616554288f83ea5e8df97d33dfea2b95db9  ./tests/test_ha_and_nerdctl.py
 83d145a2168a6e81f04e0cd2e56ace0b92fbb06059f7969899824227bc8750b5  ./tests/test_offline_audit.py
 1a32e441702024b0da8195a0d2675fdd84674adfedeb3d16d1016c03cbc85c29  ./tests/test_pki.py
 db7f4f56c72784ba52bcf690a3b418bbb5e372c767b0526f7fce0b9482135439  ./tests/test_server.py

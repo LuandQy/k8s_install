@@ -59,7 +59,7 @@ if [ "$preview" = true ]; then
 fi
 linux_root
 [ -n "$ARTIFACT_FILE" ] || die 'worker 扩容目前要求完整离线制品，避免下载改变已有集群版本'
-if [ "$NONINTERACTIVE" = true ]; then validate_password
+if [ "$NONINTERACTIVE" = true ]; then [ "${COMPONENTS:-all}" = k8s ] || validate_password
 else stage=install; wizard_credentials; fi
 controller_lock
 assert_no_pending_expansion

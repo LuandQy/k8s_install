@@ -127,7 +127,10 @@ class MasterEtcdOddQuorumAndSchemaTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, 'node required for JS pruneConfig round-trip')
     def test_all_example_envs_survive_web_prune_round_trip(self):
-        examples = sorted((ROOT / 'examples').glob('*.env')) + [ROOT / 'cluster-vars.env.example']
+        examples = [
+            p for p in sorted((ROOT / 'examples').glob('*.env'))
+            if not p.name.startswith('workers-')
+        ] + [ROOT / 'cluster-vars.env.example']
         script = (
             'const fs=require("fs");'
             'const logic=require("./web/static/workbench-logic.js");'
@@ -233,11 +236,118 @@ class ReceiptAndMaintenanceConvergenceTests(unittest.TestCase):
         resume_sh = (ROOT / 'lib' / 'resume.sh').read_text(encoding='utf-8')
         prepared_sh = (ROOT / 'lib' / 'prepared-config.sh').read_text(encoding='utf-8')
         redeploy_sh = (ROOT / 'redeploy.sh').read_text(encoding='utf-8')
+        expansion_sh = (ROOT / 'lib' / 'expansion.sh').read_text(encoding='utf-8')
         for text, name in ((resume_sh, 'lib/resume.sh'),
                            (prepared_sh, 'lib/prepared-config.sh'),
-                           (redeploy_sh, 'redeploy.sh')):
+                           (redeploy_sh, 'redeploy.sh'),
+                           (expansion_sh, 'lib/expansion.sh')):
             self.assertIn('PKI_ROOT_CERT', text, f'{name} missing PKI_ROOT_CERT persistence')
             self.assertIn('PKI_ROOT_KEY', text, f'{name} missing PKI_ROOT_KEY persistence')
+
+    def test_expansion_check_receipt_restores_byo_ca_and_rejects_tampered_ca(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tpath = Path(tmp)
+            fake_root = tpath / 'fake_root'
+            (fake_root / 'kk-project').mkdir(parents=True)
+            (fake_root / 'kk-project' / 'stub.yaml').write_text('stub: true\n', encoding='utf-8')
+            work_dir = tpath / 'work'
+            (work_dir / 'pki').mkdir(parents=True)
+            (work_dir / 'pki' / 'root.crt').write_text('ROOT-CA-BODY\n', encoding='utf-8')
+            byo_cert = tpath / 'byo-root.crt'
+            byo_key = tpath / 'byo-root.key'
+            byo_cert.write_text('BYO-CERT-V1\n', encoding='utf-8')
+            byo_key.write_text('BYO-KEY-V1\n', encoding='utf-8')
+
+            state_dir = tpath / 'state' / 'rise'
+            receipt = tpath / 'state' / 'rise.deployment'
+            run_dir = tpath / 'run'
+            state_dir.mkdir(parents=True)
+            receipt.mkdir(parents=True)
+            run_dir.mkdir(parents=True)
+
+            (state_dir / 'cluster.env').write_text('CLUSTER_NAME=rise\n', encoding='utf-8')
+            (receipt / 'cluster.env').write_text('CLUSTER_NAME=rise\n', encoding='utf-8')
+            (receipt / 'id').write_text('dep-test-001\n', encoding='utf-8')
+            (receipt / 'status').write_text('complete\n', encoding='utf-8')
+            (receipt / 'inventory.yaml').write_text('hosts: []\n', encoding='utf-8')
+            (receipt / 'identity.json').write_text('[]\n', encoding='utf-8')
+            (receipt / 'PKI_ROOT_CERT.path').write_text(f'{byo_cert}\n', encoding='utf-8')
+            (receipt / 'PKI_ROOT_KEY.path').write_text(f'{byo_key}\n', encoding='utf-8')
+
+            prep_script = f'''
+set -euo pipefail
+die() {{ printf '[ERROR] %s\\n' "$*" >&2; exit 1; }}
+sha256_file() {{
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{{print $1}}'
+    else
+        shasum -a 256 "$1" | awk '{{print $1}}'
+    fi
+}}
+. "{ROOT}/lib/resume.sh"
+ROOT="{fake_root}"
+WORK_DIR="{work_dir}"
+PKI_ROOT_CERT="{byo_cert}"
+PKI_ROOT_KEY="{byo_key}"
+resume_project_digest > "{receipt}/project.sha256"
+resume_pki > "{receipt}/pki.sha256"
+'''
+            prep = subprocess.run(['/bin/bash', '-c', prep_script], capture_output=True, text=True)
+            self.assertEqual(prep.returncode, 0, prep.stderr)
+
+            check_script = f'''
+set -euo pipefail
+die() {{ printf '[ERROR] %s\\n' "$*" >&2; exit 1; }}
+sha256_file() {{
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{{print $1}}'
+    else
+        shasum -a 256 "$1" | awk '{{print $1}}'
+    fi
+}}
+. "{ROOT}/lib/resume.sh"
+. "{ROOT}/lib/expansion.sh"
+ROOT="{fake_root}"
+WORK_DIR="{work_dir}"
+STATE_DIR="{state_dir}"
+RUN_DIR="{run_dir}"
+unset HARBOR_CA HARBOR_CERT HARBOR_KEY PKI_ROOT_CERT PKI_ROOT_KEY || true
+expansion_check_receipt
+printf 'CERT=%s\\nKEY=%s\\n' "${{PKI_ROOT_CERT:-}}" "${{PKI_ROOT_KEY:-}}"
+'''
+            ok_res = subprocess.run(['/bin/bash', '-c', check_script], capture_output=True, text=True)
+            self.assertEqual(ok_res.returncode, 0, ok_res.stderr)
+            self.assertIn(f'CERT={byo_cert}', ok_res.stdout)
+            self.assertIn(f'KEY={byo_key}', ok_res.stdout)
+
+            # Tamper BYO root certificate and ensure expansion_check_receipt rejects it
+            byo_cert.write_text('BYO-CERT-TAMPERED\n', encoding='utf-8')
+            bad_res = subprocess.run(['/bin/bash', '-c', check_script], capture_output=True, text=True)
+            self.assertNotEqual(bad_res.returncode, 0)
+            self.assertIn('原证书或私钥变化', bad_res.stderr)
+
+    def test_workers_new_example_and_external_harbor_expansion_guards(self):
+        workers_env = ROOT / 'examples' / 'workers-new.env'
+        self.assertTrue(workers_env.is_file(), 'missing examples/workers-new.env')
+        parsed = subprocess.run(
+            ['/bin/bash', '-eu', '-c', '. "$1"; printf "%s\\n" "${NEW_NODES:?}"', 'bash', str(workers_env)],
+            capture_output=True, text=True, check=True,
+        )
+        rows = [line for line in parsed.stdout.splitlines() if line.strip()]
+        self.assertGreater(len(rows), 0)
+        for row in rows:
+            cols = row.split('|')
+            self.assertEqual(len(cols), 13, f'expected 13 columns in {row!r}')
+            self.assertEqual(cols[7], 'worker', f'expected worker role in {row!r}')
+
+        scale_sh = (ROOT / 'scale-worker.sh').read_text(encoding='utf-8')
+        self.assertIn('[ "${COMPONENTS:-all}" = k8s ] || validate_password', scale_sh)
+
+        add_workers_yaml = (ROOT / 'kk-project' / 'playbooks' / 'add_workers.yaml').read_text(encoding='utf-8')
+        self.assertIn('.groups.image_registry | empty | not', add_workers_yaml)
+        self.assertIn('.image_registry.type | empty | not', add_workers_yaml)
+        self.assertIn('.rise.import_images | default true', add_workers_yaml)
 
     def test_workflow_status_fix_and_post_maintenance_verify_convergence(self):
         workflow_sh = (ROOT / 'lib' / 'workflow.sh').read_text(encoding='utf-8')

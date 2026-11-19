@@ -13,7 +13,11 @@
     - download
     # Upload required platforms (including a newly introduced architecture).
     # Registry installation and HA configuration are deliberately absent.
-    - image-registry/push
+    - role: image-registry/push
+      when:
+        - .groups.image_registry | empty | not
+        - .image_registry.type | empty | not
+        - .rise.import_images | default true
 - hosts: [rise_new_workers]
   roles: [native]
 - hosts: [kube_control_plane]
